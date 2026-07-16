@@ -1,0 +1,17 @@
+@import url("https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@700;900&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+input[type="range"] {
+  accent-color: #0b5fb0;
+}
+::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #e6e7e2;
+  border-radius: 3px;
+}
