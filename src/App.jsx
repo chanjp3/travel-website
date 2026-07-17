@@ -16,8 +16,8 @@ import { bestPath, fundingPaths, describePath } from "./lib/funding.js";
 import { buildLedger } from "./lib/costs.js";
 import { liveMode, geoSearch } from "./api/client.js";
 import { suggestCities } from "./lib/suggest.js";
-import { useLiveLeg, useLiveHotelsMap } from "./api/useLive.js";
-import { mergeLiveLeg, mergeLiveHotels } from "./lib/liveMerge.js";
+import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
+import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels } from "./lib/liveMerge.js";
 import { defaultDepart, buildSchedule, toISO, fmtDay, fmtShort, dateForDay } from "./lib/dates.js";
 import { Chip, SectionLabel, NightsStepper, PayToggle } from "./components/ui.jsx";
 import { RouteSpine } from "./components/RouteSpine.jsx";
@@ -136,15 +136,26 @@ export default function App() {
 
   const liveOut = useLiveLeg(origin.air, route?.inGw.gw, departDate, cabinPref);
   const liveBack = useLiveLeg(route?.outGw.gw, origin.air, schedule?.returnDate, cabinPref);
-  const outLeg = useMemo(() => mergeLiveLeg(outLegEst, liveOut.offers, cabinPref), [outLegEst, liveOut.offers, cabinPref]);
-  const backLeg = useMemo(() => mergeLiveLeg(backLegEst, liveBack.offers, cabinPref), [backLegEst, liveBack.offers, cabinPref]);
+  const awardsOut = useLiveAwards(origin.air, route?.inGw.gw, departDate);
+  const awardsBack = useLiveAwards(route?.outGw.gw, origin.air, schedule?.returnDate);
+  const outLeg = useMemo(
+    () => mergeLiveAwards(mergeLiveLeg(outLegEst, liveOut.offers, cabinPref), awardsOut.rows),
+    [outLegEst, liveOut.offers, cabinPref, awardsOut.rows]
+  );
+  const backLeg = useMemo(
+    () => mergeLiveAwards(mergeLiveLeg(backLegEst, liveBack.offers, cabinPref), awardsBack.rows),
+    [backLegEst, liveBack.offers, cabinPref, awardsBack.rows]
+  );
   const liveHotelsMap = useLiveHotelsMap(schedule);
 
   const pickDefault = (leg) => {
     if (!leg) return null;
     const pool = leg.options.filter((f) => f.cabin === cabinPref);
     if (pointsOnly) {
-      const fundable = pool.find((f) => f.points && bestPath(f.programId, f.points, balances));
+      // Prefer awards with confirmed (or unchecked) space over known-empty dates.
+      const fundable =
+        pool.find((f) => f.points && !f.noSpace && bestPath(f.programId, f.points, balances)) ??
+        pool.find((f) => f.points && bestPath(f.programId, f.points, balances));
       if (fundable) return fundable.id;
       const anyAward = pool.find((f) => f.points);
       if (anyAward) return anyAward.id;
@@ -380,10 +391,10 @@ export default function App() {
               <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: T.railTint, border: `1px solid ${T.rail}22` }}>
                 <Info size={16} style={{ color: T.rail, marginTop: 2, flexShrink: 0 }} />
                 <p className="text-xs leading-relaxed">
-                  <b>{liveMode() ? "Live mode" : "Estimate mode"}:</b> award prices come from published-chart
-                  estimates and cash fares from a distance model{liveMode() ? ", refined by live Amadeus data" : ""}.
-                  Deploy the included Worker with your Amadeus keys for live fares; award availability
-                  verification lands with the Seats.aero integration.
+                  <b>{liveMode() ? "Live mode" : "Estimate mode"}:</b>{" "}
+                  {liveMode()
+                    ? "cash fares come from live Amadeus searches for your dates, and award rows marked LIVE AWARD are verified bookable space via Seats.aero (chart estimates fill any gaps)."
+                    : "award prices come from published-chart estimates and cash fares from a distance model. Deploy the included Worker with your Amadeus + Seats.aero keys for live fares and verified award space."}
                 </p>
               </div>
 
@@ -578,6 +589,7 @@ export default function App() {
                     {leg.live && (
                       <p className="text-xs mb-2" style={{ color: T.pine }}>
                         <b>Live fares loaded</b> — real itineraries and prices for this date; ¢/pt values use them.
+                        {leg.awardsLive && <> <b>Award space verified via Seats.aero</b> — LIVE AWARD rows are bookable today.</>}
                       </p>
                     )}
                     {leg.routing.stops > 0 && !leg.live && (
@@ -600,9 +612,20 @@ export default function App() {
                               <div className="flex items-center gap-2">
                                 <Plane size={14} style={{ color: T.flight }} />
                                 <span className="font-bold text-sm">{f.airline} · {f.cabin}</span>
-                                {f.live
-                                  ? <Chip tint={T.pineTint} color={T.pine}>LIVE</Chip>
-                                  : f.est && <Chip tint={T.flightTint} color={T.flight}>est.</Chip>}
+                                {f.awardLive ? (
+                                  <>
+                                    <Chip tint={T.pineTint} color={T.pine}>LIVE AWARD</Chip>
+                                    {f.seats != null && f.seats > 0 && (
+                                      <Chip tint={T.goldTint ?? T.mist} color={T.gold}>{f.seats} seat{f.seats !== 1 && "s"}</Chip>
+                                    )}
+                                  </>
+                                ) : f.live ? (
+                                  <Chip tint={T.pineTint} color={T.pine}>LIVE</Chip>
+                                ) : f.noSpace ? (
+                                  <Chip tint={T.flightTint} color={T.flight}>no space this date</Chip>
+                                ) : (
+                                  f.est && <Chip tint={T.flightTint} color={T.flight}>est.</Chip>
+                                )}
                               </div>
                               <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
                                 {f.dep ? `${f.dep}–${f.arr} · ` : ""}{f.via} · {f.dur}
@@ -854,7 +877,9 @@ export default function App() {
                 <ChevronLeft size={16} /> Route & flights
               </button>
               <p className="text-xs text-right" style={{ color: T.inkSoft }}>
-                Estimates → live: deploy worker/ with Amadeus keys.<br />Award verification: Seats.aero integration next.
+                {liveMode()
+                  ? <>Cash fares & hotels: Amadeus · award space: Seats.aero.<br />Rows marked est. still use published-chart estimates.</>
+                  : <>Estimates → live: deploy worker/ with Amadeus + Seats.aero keys.<br />See README · “Going live”.</>}
               </p>
             </div>
           </div>

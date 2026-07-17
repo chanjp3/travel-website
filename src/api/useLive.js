@@ -3,7 +3,7 @@
  * when live mode is off or a fetch fails — callers merge with mergeLive*.
  */
 import { useEffect, useState } from "react";
-import { liveFlights, liveHotels, liveMode } from "./client.js";
+import { liveFlights, liveHotels, liveAwards, liveMode } from "./client.js";
 import { cityById } from "../data/world.js";
 
 export function useLiveLeg(fromAir, toAir, date, cabin) {
@@ -20,6 +20,25 @@ export function useLiveLeg(fromAir, toAir, date, cabin) {
     );
     return () => { on = false; };
   }, [fromAir, toAir, date, cabin]);
+  return state;
+}
+
+/** Seats.aero award space for a leg. `rows: null` = not configured/failed
+ *  (keep chart estimates); `rows: []` = searched, nothing bookable. */
+export function useLiveAwards(fromAir, toAir, date) {
+  const [state, set] = useState({ rows: null, loading: false });
+  useEffect(() => {
+    if (!liveMode() || !fromAir || !toAir || !date) {
+      set({ rows: null, loading: false });
+      return;
+    }
+    let on = true;
+    set({ rows: null, loading: true });
+    liveAwards(fromAir, toAir, date).then(
+      (rows) => on && set({ rows: Array.isArray(rows) ? rows : null, loading: false })
+    );
+    return () => { on = false; };
+  }, [fromAir, toAir, date]);
   return state;
 }
 

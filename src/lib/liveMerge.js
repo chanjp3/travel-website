@@ -52,6 +52,62 @@ export function mergeLiveLeg(leg, offers, cabin) {
 }
 
 /**
+ * Seats.aero source → loyalty program the funding engine can pay into.
+ * Programs Seats.aero tracks but our transfer tables don't cover (AA, Flying
+ * Blue…) are ignored rather than shown as unfundable rows.
+ */
+const SEATSAERO_SOURCES = {
+  virginatlantic: "virginAtlantic",
+  aeroplan: "aeroplan",
+  united: "united",
+  delta: "delta",
+  alaska: "alaska",
+};
+const CABIN_KEY = { Economy: "economy", Business: "business" };
+
+/**
+ * Merge Seats.aero award space into a leg's options.
+ *   rows = null      → not configured / failed: chart estimates untouched
+ *   match found      → row repriced to real miles/taxes, marked awardLive
+ *   tracked, no space → chart row flagged noSpace (shown, warned, deprioritized)
+ */
+export function mergeLiveAwards(leg, rows) {
+  if (!leg || rows == null) return leg;
+  const best = {}; // programId → { cabinKey → cheapest block }
+  for (const r of rows) {
+    const pid = SEATSAERO_SOURCES[r.source];
+    if (!pid) continue;
+    for (const ck of ["economy", "business"]) {
+      const block = r[ck];
+      if (!block?.miles) continue;
+      const cur = (best[pid] ??= {})[ck];
+      if (!cur || block.miles < cur.miles) best[pid][ck] = block;
+    }
+  }
+  const options = leg.options.map((f) => {
+    if (!f.points || !f.programId) return f;
+    const hit = best[f.programId]?.[CABIN_KEY[f.cabin]];
+    if (hit) {
+      return {
+        ...f,
+        points: hit.miles,
+        fees: hit.taxes ?? f.fees,
+        est: false, awardLive: true,
+        seats: hit.seats, direct: hit.direct,
+        airline: hit.airlines || f.airline,
+      };
+    }
+    // Seats.aero tracks this program — searched, nothing bookable that day.
+    return f.programId in invert(SEATSAERO_SOURCES) ? { ...f, noSpace: true } : f;
+  });
+  options.sort((a, b) =>
+    a.cabin === b.cabin ? (a.points ?? 9e9) - (b.points ?? 9e9) : a.cabin === "Economy" ? -1 : 1
+  );
+  return { ...leg, options, awardsLive: true };
+}
+const invert = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [v, k]));
+
+/**
  * Points-brand detector for live hotel names. When a live property belongs
  * to a bookable program, attach the program and a typical award rate derived
  * from its live cash price at the program's usual redemption value — so any

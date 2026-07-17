@@ -21,6 +21,9 @@ export const searchLocations = (q) => get("/api/locations", { q });
 export const liveFlights = (from, to, date, cabin) =>
   get("/api/flights", { from, to, date, cabin: cabin === "Business" ? "BUSINESS" : "ECONOMY" });
 
+/** Seats.aero award availability for a route+date (null when not configured). */
+export const liveAwards = (from, to, date) => get("/api/awards", { from, to, date });
+
 /** Hotels for a city object: geocode search for custom towns, city code otherwise. */
 export const liveHotels = (city, checkIn, checkOut) =>
   city.custom

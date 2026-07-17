@@ -1,10 +1,14 @@
 /**
  * Cloudflare Worker — API proxy for Trip Architect.
- * Keeps Amadeus credentials server-side (same pattern as the WSA
- * empty-legs worker). Endpoints:
+ * Keeps Amadeus + Seats.aero credentials server-side (same pattern as the
+ * WSA empty-legs worker). Endpoints:
  *   GET /api/locations?q=par            → city/airport autocomplete
  *   GET /api/flights?from=TPA&to=HND&date=2026-10-12&adults=1&cabin=BUSINESS
  *   GET /api/hotels?cityCode=TYO&checkIn=2026-10-13&checkOut=2026-10-16
+ *   GET /api/hotels?lat=50.81&lon=-0.37&checkIn=…&checkOut=…   (towns)
+ *   GET /api/awards?from=TPA&to=HND&date=2026-10-12
+ *       → Seats.aero cached award availability for that exact route+date
+ * Secrets: AMADEUS_KEY, AMADEUS_SECRET, SEATSAERO_KEY (Partner API).
  */
 let tokenCache = { token: null, exp: 0 };
 
@@ -91,6 +95,33 @@ export default {
           price: +h.offers?.[0]?.price?.total || null,
           lat: h.hotel?.latitude, lon: h.hotel?.longitude,
         })) ?? []);
+      }
+      if (url.pathname === "/api/awards") {
+        if (!env.SEATSAERO_KEY) return json({ error: "seats.aero not configured" }, 501);
+        const su = new URL("https://seats.aero/partnerapi/search");
+        su.searchParams.set("origin_airport", q.from);
+        su.searchParams.set("destination_airport", q.to);
+        su.searchParams.set("start_date", q.date);
+        su.searchParams.set("end_date", q.date);
+        su.searchParams.set("take", "100");
+        const res = await fetch(su, {
+          headers: { "Partner-Authorization": env.SEATSAERO_KEY, Accept: "application/json" },
+        });
+        if (!res.ok) throw new Error(`Seats.aero search failed: ${res.status}`);
+        const j = await res.json();
+        // One row per availability object; cabin blocks only when bookable.
+        const cabin = (a, c) => (a[`${c}Available`] ? {
+          miles: +a[`${c}MileageCost`] || null,
+          taxes: a[`${c}TotalTaxes`] != null ? Math.round(+a[`${c}TotalTaxes`]) / 100 : null,
+          currency: a.TaxesCurrency ?? "USD",
+          seats: a[`${c}RemainingSeats`] ?? null,
+          direct: !!a[`${c}Direct`],
+          airlines: a[`${c}Airlines`] ?? "",
+        } : null);
+        return json((j.data ?? []).map((a) => ({
+          source: a.Source, date: a.Date,
+          economy: cabin(a, "Y"), business: cabin(a, "J"),
+        })));
       }
       return json({ error: "not found" }, 404);
     } catch (e) {

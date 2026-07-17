@@ -35,7 +35,7 @@ Requires Node 18+.
 | Cash flight itineraries & prices | ✅ **Live via Amadeus** when connected (`worker/` + `src/lib/liveMerge.js`); distance-model estimates otherwise |
 | Hotel rates for your dates | ✅ **Live via Amadeus** when connected; curated/sample listings otherwise |
 | Point values (¢/pt) | ✅ Computed against live cash fares when connected |
-| Award prices & availability | ⚠️ Published-chart estimates — live availability needs Seats.aero (roadmap) |
+| Award prices & availability | ✅ **Live via Seats.aero** when `SEATSAERO_KEY` set (verified space + real mileage prices); chart estimates otherwise |
 
 ## Architecture
 
@@ -80,6 +80,7 @@ Two steps to switch it on:
    npx wrangler deploy
    npx wrangler secret put AMADEUS_KEY
    npx wrangler secret put AMADEUS_SECRET
+   npx wrangler secret put SEATSAERO_KEY   # optional: live award space (Partner API)
    ```
    `wrangler.toml` points at the Amadeus **test** environment; switch
    `AMADEUS_BASE` to `https://api.amadeus.com` (and re-issue production keys)
@@ -92,15 +93,19 @@ Two steps to switch it on:
 Everything fails soft: if the worker is unreachable or a search returns
 nothing for a date, the estimate engines keep the app fully functional.
 
-**Still estimated in live mode:** award *prices* come from published-chart
-data (`src/data/awardCharts.js`) — live award *availability* needs the
-Seats.aero Partner API (commercial use requires a written agreement,
-support@seats.aero). Rail fares/times are encoded from published schedules.
+**Award space:** with `SEATSAERO_KEY` set, `/api/awards` checks Seats.aero's
+cached availability for the exact route and date. Rows marked **LIVE AWARD**
+are verified bookable space at real mileage prices (with remaining-seat
+counts); programs Seats.aero tracked but found empty are flagged “no space
+this date”; anything else falls back to published-chart estimates
+(`src/data/awardCharts.js`). Seats.aero sources map to the funding engine's
+programs (Virgin Atlantic, Aeroplan, United, Delta, Alaska). Note commercial
+use of the Partner API requires a written agreement (support@seats.aero).
+Rail fares/times are encoded from published schedules.
 
 ## Roadmap (see `docs/mvp-plan.md` for the full plan)
 
-1. **Live award availability** — Seats.aero Partner API (see above).
-2. **Hotel scoring** — Google Places signals feeding the view/quality model for live properties.
+1. **Hotel scoring** — Google Places signals feeding the view/quality model for live properties.
 3. **Real map layer** — replace the SVG diagram with MapLibre GL.
 4. **PDF export & shareable links** — serialize trip state to URL; render the itinerary to PDF.
 5. **Edge caching** — cache fare/award lookups in the worker (KV) for cost and speed.
