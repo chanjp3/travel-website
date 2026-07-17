@@ -1,97 +1,180 @@
 import React, { useState, useMemo } from "react";
 import {
   Plane, TrainFront, MapPin, Clock, Check, ChevronRight, ChevronLeft,
-  Sparkles, Hotel, Wallet, Star, Info, Eye,
+  Sparkles, Hotel, Wallet, Star, Info, Eye, X, Search, Globe,
 } from "lucide-react";
 
-import { T, JPY } from "./theme.js";
-import { CITIES } from "./data/cities.js";
-import { GATEWAYS } from "./data/rail.js";
-import { FLIGHTS_OUT, FLIGHTS_BACK } from "./data/flights.js";
-import { HOTELS } from "./data/hotels.js";
-import { permutations, scoreRoutes } from "./lib/optimizer.js";
-import { hm, usd, yen, cpp, jrPassAnalysis, buildDays } from "./lib/trip.js";
-import { Chip, SectionLabel, NightsStepper, StopCard } from "./components/ui.jsx";
+import { T } from "./theme.js";
+import { WORLD, cityById, searchCities } from "./data/world.js";
+import { SOURCES, BALANCE_SOURCES, DEFAULT_BALANCES } from "./data/transferPartners.js";
+import { packFor, packById } from "./data/corridors/index.js";
+import { scoreRoutes, permutations } from "./lib/optimizer.js";
+import { legOptions } from "./lib/flightsEngine.js";
+import { hotelsFor } from "./lib/hotelsEngine.js";
+import { hm, usd, cpp, jrPassAnalysis, buildDays, JP_NAMES } from "./lib/trip.js";
+import { bestPath, fundingPaths, describePath } from "./lib/funding.js";
+import { buildLedger } from "./lib/costs.js";
+import { liveMode } from "./api/client.js";
+import { Chip, SectionLabel, NightsStepper, PayToggle } from "./components/ui.jsx";
 import { RouteSpine } from "./components/RouteSpine.jsx";
 import { JourneyMap } from "./components/JourneyMap.jsx";
 
+const DEFAULT_NIGHTS = { tokyo: 3, kyoto: 3, osaka: 2, hakone: 1, nara: 1, hiroshima: 1, kanazawa: 1 };
+
+function CitySearch({ placeholder, exclude = [], onPick }) {
+  const [q, setQ] = useState("");
+  const hits = useMemo(() => searchCities(q).filter((c) => !exclude.includes(c.id)), [q, exclude]);
+  return (
+    <div className="relative">
+      <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+        <Search size={14} style={{ color: T.inkSoft }} />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={placeholder}
+          className="flex-1 text-sm outline-none bg-transparent"
+        />
+      </div>
+      {hits.length > 0 && (
+        <div className="absolute z-10 mt-1 w-full rounded-xl overflow-hidden shadow-lg" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+          {hits.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => { onPick(c); setQ(""); }}
+              className="w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:opacity-70"
+              style={{ borderBottom: `1px solid ${T.mist}` }}
+            >
+              <span><b>{c.name}</b> <span style={{ color: T.inkSoft }}>· {c.country}</span></span>
+              <span className="text-xs font-bold" style={{ color: T.rail, fontFamily: "'IBM Plex Mono', monospace" }}>{c.air}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [step, setStep] = useState(0);
-  const [selected, setSelected] = useState({
-    tokyo: true, kyoto: true, osaka: true,
-    hakone: false, nara: false, hiroshima: false, kanazawa: false,
-  });
-  const [nights, setNights] = useState(
-    Object.fromEntries(Object.keys(CITIES).map((k) => [k, CITIES[k].nights]))
-  );
+  const [originId, setOriginId] = useState("tampa");
+  const [destIds, setDestIds] = useState(["tokyo", "kyoto", "osaka"]);
+  const [nights, setNights] = useState({ ...DEFAULT_NIGHTS });
   const [wCost, setWCost] = useState(0.5);
   const [cabinPref, setCabinPref] = useState("Business");
-  const [balances, setBalances] = useState({
-    "Amex MR": 260000, "Chase UR": 180000, Alaska: 90000,
-    Hyatt: 90000, Marriott: 120000, Hilton: 150000,
-  });
+  const [pointsOnly, setPointsOnly] = useState(true);
+  const [balances, setBalances] = useState({ ...DEFAULT_BALANCES });
   const [routeIdx, setRouteIdx] = useState(0);
-  const [flightOut, setFlightOut] = useState("o1");
-  const [flightBack, setFlightBack] = useState("b1");
+  const [flightSel, setFlightSel] = useState({});   // { out: optId, back: optId }
+  const [flightPay, setFlightPay] = useState({ out: "points", back: "points" });
   const [hotelPicks, setHotelPicks] = useState({});
+  const [hotelPay, setHotelPay] = useState({});
 
-  const cityIds = Object.keys(selected).filter((k) => selected[k]);
+  const origin = cityById[originId];
   const results = useMemo(
-    () => (cityIds.length >= 2 ? scoreRoutes(cityIds, wCost) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [selected, wCost]
+    () => (destIds.length >= 1 ? scoreRoutes(destIds, wCost, originId) : null),
+    [destIds, wCost, originId]
   );
-  const route = results?.top[routeIdx];
-  const jr = useMemo(() => jrPassAnalysis(route), [route]);
-  const days = useMemo(() => (route ? buildDays(route, nights) : []), [route, nights]);
-  const fOut = FLIGHTS_OUT.find((f) => f.id === flightOut);
-  const fBack = FLIGHTS_BACK.find((f) => f.id === flightBack);
-  const totalNights = cityIds.reduce((s, c) => s + (nights[c] ?? 0), 0);
+  const route = results?.top[Math.min(routeIdx, (results?.top.length ?? 1) - 1)];
 
-  const steps = ["Trip brief", "Stops", "Route & flights", "Itinerary"];
+  // Long-haul options for the chosen route
+  const outLeg = useMemo(() => (route ? legOptions(originId, route.order[0]) : null), [route, originId]);
+  const backLeg = useMemo(
+    () => (route ? legOptions(route.order[route.order.length - 1], originId) : null),
+    [route, originId]
+  );
+
+  const pickDefault = (leg) => {
+    if (!leg) return null;
+    const pool = leg.options.filter((f) => f.cabin === cabinPref);
+    if (pointsOnly) {
+      const fundable = pool.find((f) => f.points && bestPath(f.programId, f.points, balances));
+      if (fundable) return fundable.id;
+      const anyAward = pool.find((f) => f.points);
+      if (anyAward) return anyAward.id;
+    }
+    return pool[0]?.id ?? leg.options[0]?.id ?? null;
+  };
+  const outId = flightSel.out ?? pickDefault(outLeg);
+  const backId = flightSel.back ?? pickDefault(backLeg);
+  const fOut = outLeg?.options.find((f) => f.id === outId);
+  const fBack = backLeg?.options.find((f) => f.id === backId);
+  const pathOut = fOut?.points ? bestPath(fOut.programId, fOut.points, balances) : null;
+  const pathBack = fBack?.points ? bestPath(fBack.programId, fBack.points, balances) : null;
+
+  const jr = useMemo(() => jrPassAnalysis(route), [route]);
+  const days = useMemo(() => (route ? buildDays(route, nights, originId) : []), [route, nights, originId]);
+
+  const hotelChoices = useMemo(() => {
+    if (!route) return [];
+    return route.order.map((cid) => {
+      const { hotels, sample } = hotelsFor(cid);
+      const hotel = hotels.find((h) => h.name === hotelPicks[cid]) ?? hotels[0];
+      const n = nights[cid] ?? 2;
+      const path = hotel.pts ? bestPath(hotel.pid, hotel.pts * n, balances) : null;
+      const requested = hotelPay[cid] ?? (pointsOnly && path ? "points" : path ? "points" : "cash");
+      return { city: cid, hotel, nights: n, sample, path, mode: requested === "points" && path ? "points" : "cash" };
+    });
+  }, [route, hotelPicks, hotelPay, nights, balances, pointsOnly]);
+
+  const ledger = useMemo(() => {
+    if (!route || !fOut || !fBack) return null;
+    return buildLedger({
+      flights: [
+        { label: `${origin.air} → ${route.inGw.gw}`, f: fOut, mode: pointsOnly || flightPay.out === "points" ? "points" : "cash", path: pathOut },
+        { label: `${route.outGw.gw} → ${origin.air}`, f: fBack, mode: pointsOnly || flightPay.back === "points" ? "points" : "cash", path: pathBack },
+      ],
+      hotels: hotelChoices, route, jr,
+    });
+  }, [route, fOut, fBack, flightPay, pathOut, pathBack, hotelChoices, jr, pointsOnly, origin]);
+
+  const totalNights = destIds.reduce((s, c) => s + (nights[c] ?? 2), 0);
+  const japanSuggestions = useMemo(() => {
+    const jp = packById("japan");
+    if (!destIds.some((d) => cityById[d].pack === "japan")) return [];
+    return jp.suggestions.filter((s) => !destIds.includes(s));
+  }, [destIds]);
+
+  const steps = ["Trip brief", "Destinations", "Route & flights", "Itinerary & cost"];
+  const setN = (cid, n) => setNights({ ...nights, [cid]: n });
+
+  const SUGGEST_META = {
+    hakone: { why: "On the Tokaido corridor between Tokyo and Kyoto — an onsen night costs almost no detour.", add: "+1h 10m · ≈$46 rail" },
+    nara: { why: "45 min from Kyoto or Osaka — Todai-ji and the bowing deer.", add: "+1h 35m · ≈$10 rail" },
+    kanazawa: { why: "The quieter Hokuriku arc: Kenroku-en garden, geisha district.", add: "+2h 20m · ≈$95 rail" },
+    hiroshima: { why: "Peace Memorial + Miyajima, 1h 25m past Osaka.", add: "+2h 50m · ≈$142 rail" },
+  };
 
   return (
     <div className="min-h-screen" style={{ background: T.paper, color: T.ink, fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
-      {/* Header */}
       <header className="border-b" style={{ borderColor: T.mist, background: T.card }}>
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
           <div>
             <div className="flex items-baseline gap-2">
-              <h1 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: 24, letterSpacing: "-0.01em" }}>
-                Trip Architect
-              </h1>
+              <h1 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: 24 }}>Trip Architect</h1>
               <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.rail, fontSize: 16 }}>旅程設計</span>
             </div>
-            <p className="text-xs" style={{ color: T.inkSoft }}>
-              Points-optimized multi-city planner · Japan corridor prototype
-            </p>
+            <p className="text-xs" style={{ color: T.inkSoft }}>Points-optimized trip planner · any origin, any destinations</p>
           </div>
-          <Chip tint={T.flightTint} color={T.flight}>SAMPLE AWARD DATA</Chip>
+          <Chip tint={liveMode() ? T.pineTint : T.flightTint} color={liveMode() ? T.pine : T.flight}>
+            {liveMode() ? "LIVE FARES CONNECTED" : "ESTIMATE MODE"}
+          </Chip>
         </div>
-
-        {/* Stepper */}
         <div className="max-w-5xl mx-auto px-4 pb-3 flex gap-1 overflow-x-auto">
           {steps.map((s, i) => (
             <button
-              key={s}
-              onClick={() => setStep(i)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all"
+              key={s} onClick={() => setStep(i)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap"
               style={{
                 background: i === step ? T.ink : "transparent",
                 color: i === step ? "#fff" : i < step ? T.rail : T.inkSoft,
                 border: `1px solid ${i === step ? T.ink : T.mist}`,
               }}
             >
-              <span
-                className="flex items-center justify-center rounded-full"
-                style={{
-                  width: 16, height: 16, fontSize: 10,
-                  background: i < step ? T.rail : i === step ? "#fff" : T.mist,
-                  color: i < step ? "#fff" : i === step ? T.ink : T.inkSoft,
-                }}
-              >
-                {i < step ? <Check size={10} /> : i + 1}
-              </span>
+              <span className="flex items-center justify-center rounded-full" style={{
+                width: 16, height: 16, fontSize: 10,
+                background: i < step ? T.rail : i === step ? "#fff" : T.mist,
+                color: i < step ? "#fff" : i === step ? T.ink : T.inkSoft,
+              }}>{i < step ? <Check size={10} /> : i + 1}</span>
               {s}
             </button>
           ))}
@@ -99,29 +182,40 @@ export default function App() {
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {/* ── STEP 0 · TRIP BRIEF ── */}
+        {/* ── STEP 0 · BRIEF ── */}
         {step === 0 && (
           <div className="grid md:grid-cols-2 gap-6">
             <div>
               <SectionLabel>The brief</SectionLabel>
               <h2 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 700, fontSize: 28, lineHeight: 1.25 }}>
-                Tampa → Japan,<br />built around your points.
+                Any trip,<br />built around your points.
               </h2>
               <p className="mt-3 text-sm leading-relaxed" style={{ color: T.inkSoft }}>
-                Enter your balances and priorities. The optimizer sequences your cities, picks entry and
-                exit airports, routes the trains, and prices every leg in points and cash.
+                Pick an origin and destinations anywhere. The engine sequences the stops, routes flights
+                (with connections) and trains, funds awards through your card transfer partners, and
+                prices the whole trip.
               </p>
+
               <div className="mt-5 rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Globe size={15} style={{ color: T.rail }} />
+                  <span className="text-sm font-bold">Origin</span>
+                  <Chip tint={T.railTint} color={T.rail}>{origin.name} · {origin.air}</Chip>
+                </div>
+                <CitySearch placeholder="Change origin city…" exclude={[originId]} onPick={(c) => setOriginId(c.id)} />
+              </div>
+
+              <div className="mt-4 rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
                 <div className="flex items-center gap-2 mb-3">
                   <Wallet size={15} style={{ color: T.rail }} />
                   <span className="text-sm font-bold">Points balances</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  {Object.entries(balances).map(([k, v]) => (
+                  {BALANCE_SOURCES.map((k) => (
                     <label key={k} className="text-xs">
-                      <span className="font-semibold" style={{ color: T.inkSoft }}>{k}</span>
+                      <span className="font-semibold" style={{ color: T.inkSoft }}>{SOURCES[k].short}</span>
                       <input
-                        type="number" value={v} step={5000} min={0}
+                        type="number" value={balances[k] ?? 0} step={5000} min={0}
                         onChange={(e) => setBalances({ ...balances, [k]: +e.target.value })}
                         className="w-full mt-0.5 px-2 py-1.5 rounded-lg text-sm font-semibold"
                         style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'IBM Plex Mono', monospace" }}
@@ -133,26 +227,37 @@ export default function App() {
             </div>
 
             <div className="space-y-4">
+              <button
+                onClick={() => setPointsOnly(!pointsOnly)}
+                className="w-full rounded-xl p-4 flex items-center justify-between text-left"
+                style={{ background: pointsOnly ? T.pineTint : T.card, border: `1.5px solid ${pointsOnly ? T.pine : T.mist}` }}
+              >
+                <div>
+                  <div className="text-sm font-bold" style={{ color: pointsOnly ? T.pine : T.ink }}>
+                    Points-only mode {pointsOnly ? "· ON" : "· OFF"}
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: T.inkSoft }}>
+                    Only show awards your balances can fund via card transfer partners
+                  </div>
+                </div>
+                <div className="rounded-full relative" style={{ width: 40, height: 22, background: pointsOnly ? T.pine : T.mist }}>
+                  <div className="rounded-full bg-white absolute transition-all" style={{ width: 18, height: 18, top: 2, left: pointsOnly ? 20 : 2 }} />
+                </div>
+              </button>
+
               <div className="rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
-                <span className="text-sm font-bold">Cabin preference · transpacific</span>
+                <span className="text-sm font-bold">Cabin preference · long-haul</span>
                 <div className="flex gap-2 mt-2">
                   {["Economy", "Business"].map((c) => (
                     <button
-                      key={c}
-                      onClick={() => {
-                        setCabinPref(c);
-                        setFlightOut(c === "Business" ? "o1" : "o5");
-                        setFlightBack(c === "Business" ? "b1" : "b5");
-                      }}
-                      className="flex-1 py-2 rounded-lg text-sm font-semibold transition-all"
+                      key={c} onClick={() => { setCabinPref(c); setFlightSel({}); }}
+                      className="flex-1 py-2 rounded-lg text-sm font-semibold"
                       style={{
                         background: cabinPref === c ? T.railTint : T.paper,
                         border: `1.5px solid ${cabinPref === c ? T.rail : T.mist}`,
                         color: cabinPref === c ? T.rail : T.inkSoft,
                       }}
-                    >
-                      {c}
-                    </button>
+                    >{c}</button>
                   ))}
                 </div>
               </div>
@@ -163,106 +268,108 @@ export default function App() {
                   <span className="font-normal text-xs" style={{ color: T.inkSoft }}>optimizer priority</span>
                   <span style={{ color: wCost < 0.5 ? T.rail : T.inkSoft }}>Fastest</span>
                 </div>
-                <input
-                  type="range" min={0} max={1} step={0.05} value={1 - wCost}
-                  onChange={(e) => setWCost(1 - +e.target.value)} className="w-full"
-                />
-                <p className="text-xs mt-1" style={{ color: T.inkSoft }}>
-                  Weighting: {Math.round(wCost * 100)}% cost · {Math.round((1 - wCost) * 100)}% time.
-                  Re-scores every candidate route live.
-                </p>
+                <input type="range" min={0} max={1} step={0.05} value={1 - wCost} onChange={(e) => setWCost(1 - +e.target.value)} className="w-full" />
               </div>
 
               <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: T.railTint, border: `1px solid ${T.rail}22` }}>
                 <Info size={16} style={{ color: T.rail, marginTop: 2, flexShrink: 0 }} />
-                <p className="text-xs leading-relaxed" style={{ color: T.ink }}>
-                  <b>Prototype scope:</b> rail times and fares reflect published schedules; transpacific
-                  award options are realistic <b>sample data</b> pending the live award-availability
-                  integration. Everything else — the optimizer, gateway logic, JR Pass math, itinerary
-                  assembly — is fully functional.
+                <p className="text-xs leading-relaxed">
+                  <b>{liveMode() ? "Live mode" : "Estimate mode"}:</b> award prices come from published-chart
+                  estimates and cash fares from a distance model{liveMode() ? ", refined by live Amadeus data" : ""}.
+                  Deploy the included Worker with your Amadeus keys for live fares; award availability
+                  verification lands with the Seats.aero integration.
                 </p>
               </div>
 
-              <button
-                onClick={() => setStep(1)}
-                className="w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 text-white"
-                style={{ background: T.ink }}
-              >
-                Choose stops <ChevronRight size={16} />
+              <button onClick={() => setStep(1)} className="w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 text-white" style={{ background: T.ink }}>
+                Choose destinations <ChevronRight size={16} />
               </button>
             </div>
           </div>
         )}
 
-        {/* ── STEP 1 · STOPS ── */}
+        {/* ── STEP 1 · DESTINATIONS ── */}
         {step === 1 && (
           <div>
-            <SectionLabel>Your stops</SectionLabel>
-            <div className="grid sm:grid-cols-3 gap-3">
-              {["tokyo", "kyoto", "osaka"].map((cid) => (
-                <StopCard
-                  key={cid} cid={cid} on={selected[cid]} nights={nights[cid]}
-                  toggle={() => setSelected({ ...selected, [cid]: !selected[cid] })}
-                  setN={(n) => setNights({ ...nights, [cid]: n })}
-                />
-              ))}
+            <SectionLabel>Destinations — anywhere</SectionLabel>
+            <CitySearch
+              placeholder="Add a destination… (e.g. Tokyo, Paris, Lima)"
+              exclude={[originId, ...destIds]}
+              onPick={(c) => { setDestIds([...destIds, c.id]); if (!nights[c.id]) setN(c.id, 2); }}
+            />
+
+            <div className="grid sm:grid-cols-2 gap-3 mt-4">
+              {destIds.map((cid) => {
+                const c = cityById[cid];
+                const pack = packFor(cid);
+                return (
+                  <div key={cid} className="rounded-xl p-4" style={{ background: T.card, border: `1.5px solid ${T.ink}` }}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-baseline gap-2">
+                        <span className="font-bold">{c.name}</span>
+                        <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.inkSoft, fontSize: 13 }}>
+                          {JP_NAMES[cid] ?? c.country}
+                        </span>
+                      </div>
+                      <button onClick={() => setDestIds(destIds.filter((d) => d !== cid))} style={{ color: T.inkSoft }}>
+                        <X size={16} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between mt-2.5">
+                      <div className="flex items-center gap-2 text-xs font-semibold">
+                        Nights: <NightsStepper n={nights[cid] ?? 2} setN={(n) => setN(cid, n)} />
+                      </div>
+                      {pack && (
+                        <Chip tint={T.railTint} color={T.rail}>
+                          <TrainFront size={11} /> {pack.name} rail data
+                        </Chip>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            <div className="mt-7">
-              <div className="flex items-center gap-2 mb-3">
-                <Sparkles size={15} style={{ color: T.gold }} />
-                <span className="text-xs font-bold tracking-widest uppercase" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
-                  Suggested additions — with the true incremental cost
-                </span>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-3">
-                {["hakone", "nara", "kanazawa", "hiroshima"].map((cid) => {
-                  const c = CITIES[cid];
-                  const on = selected[cid];
-                  return (
-                    <button
-                      key={cid}
-                      onClick={() => setSelected({ ...selected, [cid]: !on })}
-                      className="text-left rounded-xl p-4 transition-all"
-                      style={{ background: on ? T.railTint : T.card, border: `1.5px solid ${on ? T.rail : T.mist}` }}
-                    >
-                      <div className="flex items-center justify-between">
+            {japanSuggestions.length > 0 && (
+              <div className="mt-7">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles size={15} style={{ color: T.gold }} />
+                  <span className="text-xs font-bold tracking-widest uppercase" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
+                    Suggested additions near your route
+                  </span>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  {japanSuggestions.map((cid) => {
+                    const c = cityById[cid];
+                    const m = SUGGEST_META[cid];
+                    return (
+                      <button
+                        key={cid}
+                        onClick={() => { setDestIds([...destIds, cid]); if (!nights[cid]) setN(cid, 1); }}
+                        className="text-left rounded-xl p-4"
+                        style={{ background: T.card, border: `1.5px solid ${T.mist}` }}
+                      >
                         <div className="flex items-baseline gap-2">
                           <span className="font-bold">{c.name}</span>
-                          <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.inkSoft, fontSize: 13 }}>{c.jp}</span>
+                          <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.inkSoft, fontSize: 13 }}>{JP_NAMES[cid]}</span>
                         </div>
-                        <div
-                          className="flex items-center justify-center rounded-full"
-                          style={{ width: 22, height: 22, background: on ? T.rail : T.paper, border: `1.5px solid ${on ? T.rail : T.mist}`, color: "#fff" }}
-                        >
-                          {on && <Check size={13} />}
-                        </div>
-                      </div>
-                      <p className="text-xs mt-1.5 leading-relaxed" style={{ color: T.inkSoft }}>{c.why}</p>
-                      <div className="flex gap-2 mt-2.5">
-                        <Chip tint={T.railTint} color={T.rail}><Clock size={11} />{c.addTime}</Chip>
-                        <Chip tint={T.pineTint} color={T.pine}>{c.addCost}</Chip>
-                      </div>
-                      {on && (
-                        <div className="flex items-center gap-2 mt-3 text-xs font-semibold" onClick={(e) => e.stopPropagation()}>
-                          Nights:
-                          <NightsStepper n={nights[cid]} setN={(n) => setNights({ ...nights, [cid]: n })} />
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
+                        <p className="text-xs mt-1.5 leading-relaxed" style={{ color: T.inkSoft }}>{m.why}</p>
+                        <div className="mt-2"><Chip tint={T.pineTint} color={T.pine}>{m.add}</Chip></div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="flex items-center justify-between mt-6 gap-3">
               <div className="text-sm" style={{ color: T.inkSoft }}>
-                <b style={{ color: T.ink }}>{cityIds.length} stops · {totalNights} nights</b> in Japan
-                {cityIds.length >= 2 && <> · {permutations(cityIds).length.toLocaleString()} route orderings will be scored</>}
+                <b style={{ color: T.ink }}>{origin.name} → {destIds.length} stops · {totalNights} nights</b>
+                {destIds.length >= 2 && <> · {permutations(destIds).length.toLocaleString()} orderings will be scored</>}
               </div>
               <button
-                onClick={() => { setRouteIdx(0); setStep(2); }}
-                disabled={cityIds.length < 2}
+                onClick={() => { setRouteIdx(0); setFlightSel({}); setStep(2); }}
+                disabled={destIds.length < 1}
                 className="py-3 px-5 rounded-xl font-bold text-sm flex items-center gap-2 text-white disabled:opacity-40"
                 style={{ background: T.ink }}
               >
@@ -277,27 +384,20 @@ export default function App() {
           <div className="space-y-7">
             <div>
               <SectionLabel>
-                Optimized routes — top {results.top.length} of {permutations(cityIds).length.toLocaleString()} scored
+                Optimized routes — top {results.top.length} of {permutations(destIds).length.toLocaleString()} scored
               </SectionLabel>
               <div className="space-y-3">
                 {results.top.map((r, i) => {
                   const savedMin = results.naive.totalMin - r.totalMin;
-                  const savedYen = results.naive.totalYen - r.totalYen;
                   return (
                     <button
-                      key={i}
-                      onClick={() => setRouteIdx(i)}
-                      className="w-full text-left rounded-xl p-4 transition-all"
+                      key={i} onClick={() => { setRouteIdx(i); setFlightSel({}); }}
+                      className="w-full text-left rounded-xl p-4"
                       style={{ background: routeIdx === i ? T.card : T.paper, border: `2px solid ${routeIdx === i ? T.ink : T.mist}` }}
                     >
                       <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
                         <div className="flex items-center gap-2">
-                          <span
-                            className="flex items-center justify-center rounded-full text-white text-xs font-bold"
-                            style={{ width: 22, height: 22, background: i === 0 ? T.rail : T.inkSoft }}
-                          >
-                            {i + 1}
-                          </span>
+                          <span className="flex items-center justify-center rounded-full text-white text-xs font-bold" style={{ width: 22, height: 22, background: i === 0 ? T.rail : T.inkSoft }}>{i + 1}</span>
                           <span className="font-bold text-sm">
                             {i === 0 ? "Recommended" : `Alternative ${i}`} · {r.inGw.gw} in / {r.outGw.gw} out{" "}
                             {r.inGw.gw !== r.outGw.gw && <Chip tint={T.pineTint} color={T.pine}>open jaw</Chip>}
@@ -305,16 +405,15 @@ export default function App() {
                         </div>
                         <div className="flex gap-2 text-xs font-semibold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
                           <Chip tint={T.railTint} color={T.rail}><Clock size={11} />{hm(r.totalMin)} ground</Chip>
-                          <Chip tint={T.pineTint} color={T.pine}>{yen(r.totalYen)} ≈ {usd(r.totalYen / JPY)}</Chip>
+                          <Chip tint={T.pineTint} color={T.pine}>{usd(r.totalUsd)} ground</Chip>
                         </div>
                       </div>
-                      <RouteSpine route={r} compact />
-                      {i === 0 && savedMin > 15 && (
+                      <RouteSpine route={r} originId={originId} compact />
+                      {i === 0 && savedMin > 20 && (
                         <p className="text-xs mt-2" style={{ color: T.pine }}>
-                          <b>Why this wins:</b> vs. a naive Tokyo round trip in your listed order, this saves{" "}
-                          {hm(Math.max(savedMin, 0))} of ground travel
-                          {savedYen > 500 && <> and {yen(savedYen)} (≈ {usd(savedYen / JPY)})</>} — mostly by
-                          not backtracking to the arrival gateway.
+                          <b>Why this wins:</b> vs. your listed order as a round trip, this saves {hm(Math.max(savedMin, 0))} of
+                          ground travel{results.naive.totalUsd - r.totalUsd > 25 && <> and {usd(results.naive.totalUsd - r.totalUsd)}</>} —
+                          sequencing and gateway choice, not luck.
                         </p>
                       )}
                     </button>
@@ -323,102 +422,108 @@ export default function App() {
               </div>
             </div>
 
-            {/* Transpacific */}
+            {/* Long-haul flights with funding paths */}
             <div className="grid md:grid-cols-2 gap-5">
               {[
-                { dir: "Outbound · TPA → " + route.inGw.gw, list: FLIGHTS_OUT.filter((f) => f.gw === route.inGw.gw || route.inGw.gw === "HND"), sel: flightOut, set: setFlightOut },
-                { dir: "Return · " + route.outGw.gw + " → TPA", list: FLIGHTS_BACK.filter((f) => f.gw === route.outGw.gw), sel: flightBack, set: setFlightBack },
-              ].map(({ dir, list, sel, set }) => (
-                <div key={dir}>
-                  <SectionLabel>{dir}</SectionLabel>
-                  <div className="space-y-2">
-                    {list.map((f) => {
-                      const chosen = sel === f.id;
-                      return (
-                        <button
-                          key={f.id}
-                          onClick={() => set(f.id)}
-                          className="w-full text-left rounded-xl p-3 transition-all"
-                          style={{ background: chosen ? T.card : T.paper, border: `1.5px solid ${chosen ? T.flight : T.mist}` }}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <Plane size={14} style={{ color: T.flight }} />
-                              <span className="font-bold text-sm">{f.airline} · {f.cabin}</span>
+                { key: "out", dir: `Outbound · ${origin.air} → ${route.inGw.gw}`, leg: outLeg, sel: outId },
+                { key: "back", dir: `Return · ${route.outGw.gw} → ${origin.air}`, leg: backLeg, sel: backId },
+              ].map(({ key, dir, leg, sel }) => {
+                const visible = leg.options.filter((f) => {
+                  if (f.cabin !== cabinPref && !f.cashOnly) return false;
+                  if (pointsOnly) return f.points && bestPath(f.programId, f.points, balances);
+                  return true;
+                });
+                const shown = visible.length ? visible : leg.options.filter((f) => f.cabin === cabinPref);
+                return (
+                  <div key={key}>
+                    <SectionLabel>{dir}</SectionLabel>
+                    {leg.routing.stops > 0 && (
+                      <p className="text-xs mb-2" style={{ color: T.inkSoft }}>
+                        No practical nonstop — routing connects <b>via {leg.routing.via.air} ({leg.routing.via.name})</b>.
+                      </p>
+                    )}
+                    <div className="space-y-2">
+                      {shown.map((f) => {
+                        const chosen = sel === f.id;
+                        const path = f.points ? bestPath(f.programId, f.points, balances) : null;
+                        return (
+                          <button
+                            key={f.id}
+                            onClick={() => setFlightSel({ ...flightSel, [key]: f.id })}
+                            className="w-full text-left rounded-xl p-3"
+                            style={{ background: chosen ? T.card : T.paper, border: `1.5px solid ${chosen ? T.flight : T.mist}` }}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <Plane size={14} style={{ color: T.flight }} />
+                                <span className="font-bold text-sm">{f.airline} · {f.cabin}</span>
+                                {f.est && <Chip tint={T.flightTint} color={T.flight}>est.</Chip>}
+                              </div>
+                              <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{f.via} · {f.dur}</span>
                             </div>
-                            <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
-                              {f.via} · {f.dur}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between mt-2 flex-wrap gap-1">
-                            <div className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
-                              {(f.points / 1000).toFixed(0)}K{" "}
-                              <span className="text-xs font-normal" style={{ color: T.inkSoft }}>
-                                {f.program} + {usd(f.fees)}
-                              </span>
+                            <div className="flex items-center justify-between mt-2 flex-wrap gap-1">
+                              {f.points ? (
+                                <div className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+                                  {(f.points / 1000).toFixed(0)}K{" "}
+                                  <span className="text-xs font-normal" style={{ color: T.inkSoft }}>{SOURCES[f.programId].short} + {usd(f.fees)}</span>
+                                </div>
+                              ) : (
+                                <div className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{usd(f.cash)}</div>
+                              )}
+                              <div className="flex gap-1.5">
+                                {f.points && <Chip tint={T.pineTint} color={T.pine}>{cpp(f)}¢/pt</Chip>}
+                                {f.points && <Chip tint={T.mist} color={T.inkSoft}>cash {usd(f.cash)}</Chip>}
+                              </div>
                             </div>
-                            <div className="flex gap-1.5">
-                              <Chip tint={T.pineTint} color={T.pine}>{cpp(f)}¢/pt</Chip>
-                              <Chip tint={T.mist} color={T.inkSoft}>cash {usd(f.cash)}</Chip>
-                            </div>
-                          </div>
-                          <p className="text-xs mt-1" style={{ color: T.inkSoft }}>Transfer path: {f.xfer}</p>
-                        </button>
-                      );
-                    })}
+                            {f.points && (
+                              <p className="text-xs mt-1" style={{ color: path ? T.inkSoft : T.flight }}>
+                                {describePath(path, f.programId)}
+                              </p>
+                            )}
+                            {!pointsOnly && chosen && f.points && (
+                              <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                                <PayToggle mode={flightPay[key]} setMode={(m) => setFlightPay({ ...flightPay, [key]: m })} disabled={!path} />
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
-            {/* JR Pass */}
             {jr && (
-              <div
-                className="rounded-xl p-4 flex items-start gap-3"
-                style={{ background: jr.worthIt ? T.pineTint : T.card, border: `1px solid ${jr.worthIt ? T.pine : T.mist}` }}
-              >
+              <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: jr.worthIt ? T.pineTint : T.card, border: `1px solid ${jr.worthIt ? T.pine : T.mist}` }}>
                 <TrainFront size={17} style={{ color: jr.worthIt ? T.pine : T.inkSoft, marginTop: 2, flexShrink: 0 }} />
                 <div className="text-sm">
-                  <b>JR Pass check:</b> your itinerary's JR-covered fares total ≈ {yen(jr.jrYen)}. A {jr.pass.name} costs {yen(jr.pass.cost)} —{" "}
-                  {jr.worthIt ? (
-                    <b style={{ color: T.pine }}>
-                      the pass saves you ≈ {yen(jr.jrYen - jr.pass.cost)} ({usd((jr.jrYen - jr.pass.cost) / JPY)}).
-                      Buy it (note: Nozomi requires a supplement; times shown assume Hikari where relevant).
-                    </b>
-                  ) : (
-                    <b> point-to-point tickets win by ≈ {yen(jr.pass.cost - jr.jrYen)}. Skip the pass.</b>
-                  )}
+                  <b>JR Pass check:</b> JR-covered fares ≈ ¥{jr.jrYen.toLocaleString()} vs. {jr.pass.name} at ¥{jr.pass.cost.toLocaleString()} —{" "}
+                  {jr.worthIt
+                    ? <b style={{ color: T.pine }}>buy the pass (saves ≈ ¥{(jr.jrYen - jr.pass.cost).toLocaleString()}; Nozomi needs a supplement).</b>
+                    : <b>point-to-point tickets win by ≈ ¥{(jr.pass.cost - jr.jrYen).toLocaleString()}. Skip it.</b>}
                 </div>
               </div>
             )}
 
             <div className="flex justify-between">
-              <button
-                onClick={() => setStep(1)}
-                className="py-3 px-4 rounded-xl font-bold text-sm flex items-center gap-1"
-                style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}
-              >
-                <ChevronLeft size={16} /> Stops
+              <button onClick={() => setStep(1)} className="py-3 px-4 rounded-xl font-bold text-sm flex items-center gap-1" style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}>
+                <ChevronLeft size={16} /> Destinations
               </button>
-              <button
-                onClick={() => setStep(3)}
-                className="py-3 px-5 rounded-xl font-bold text-sm flex items-center gap-2 text-white"
-                style={{ background: T.ink }}
-              >
-                Build itinerary <ChevronRight size={16} />
+              <button onClick={() => setStep(3)} className="py-3 px-5 rounded-xl font-bold text-sm flex items-center gap-2 text-white" style={{ background: T.ink }}>
+                Itinerary & cost <ChevronRight size={16} />
               </button>
             </div>
           </div>
         )}
 
-        {/* ── STEP 3 · ITINERARY ── */}
-        {step === 3 && route && fOut && fBack && (
+        {/* ── STEP 3 · ITINERARY & COST ── */}
+        {step === 3 && route && fOut && fBack && ledger && (
           <div className="space-y-8">
-            {/* Summary band */}
             <div className="rounded-2xl p-5 text-white" style={{ background: T.ink }}>
               <div className="flex items-baseline justify-between flex-wrap gap-2">
                 <h2 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 700, fontSize: 22 }}>
-                  {days.length} days · {route.order.map((c) => CITIES[c].name).join(" → ")}
+                  {days.length} days · {origin.name} → {route.order.map((c) => cityById[c].name).join(" → ")}
                 </h2>
                 <span className="text-xs opacity-70" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
                   {route.inGw.gw} IN · {route.outGw.gw} OUT{route.inGw.gw !== route.outGw.gw && " · OPEN JAW"}
@@ -426,10 +531,10 @@ export default function App() {
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
                 {[
-                  ["Flights (points)", `${((fOut.points + fBack.points) / 1000).toFixed(0)}K + ${usd(fOut.fees + fBack.fees)}`],
-                  ["vs. cash airfare", usd(fOut.cash + fBack.cash)],
-                  ["Ground transport", `${usd(route.totalYen / JPY)} · ${hm(route.totalMin)}`],
-                  ["Redemption value", `${(((fOut.cash + fBack.cash - fOut.fees - fBack.fees) / (fOut.points + fBack.points)) * 100).toFixed(1)}¢ per point`],
+                  ["Cash out of pocket", usd(ledger.cash)],
+                  ["Full retail value", usd(ledger.retail)],
+                  ["You save", usd(Math.max(0, ledger.retail - ledger.cash))],
+                  ["Points deployed", `${(Object.values(ledger.usage).reduce((a, b) => a + b, 0) / 1000).toFixed(0)}K total`],
                 ].map(([k, v]) => (
                   <div key={k}>
                     <div className="text-xs opacity-60">{k}</div>
@@ -439,60 +544,115 @@ export default function App() {
               </div>
             </div>
 
-            {/* Spine + map */}
             <div>
               <SectionLabel>The journey</SectionLabel>
               <div className="rounded-xl p-4 mb-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
-                <RouteSpine route={route} />
+                <RouteSpine route={route} originId={originId} />
               </div>
-              <JourneyMap route={route} />
+              <JourneyMap route={route} originId={originId} />
             </div>
 
             {/* Hotels */}
             <div>
-              <SectionLabel>Hotels — scored on views &amp; quality</SectionLabel>
+              <SectionLabel>Hotels — points program or cash</SectionLabel>
               <div className="space-y-4">
-                {route.order.map((cid) => (
-                  <div key={cid}>
-                    <div className="flex items-baseline gap-2 mb-2">
-                      <span className="font-bold text-sm">{CITIES[cid].name}</span>
-                      <span className="text-xs" style={{ color: T.inkSoft }}>
-                        {nights[cid]} night{nights[cid] !== 1 && "s"}
+                {route.order.map((cid) => {
+                  const { hotels, sample } = hotelsFor(cid);
+                  const chosenName = hotelPicks[cid] ?? hotels[0].name;
+                  return (
+                    <div key={cid}>
+                      <div className="flex items-baseline gap-2 mb-2">
+                        <span className="font-bold text-sm">{cityById[cid].name}</span>
+                        <span className="text-xs" style={{ color: T.inkSoft }}>{nights[cid] ?? 2} night{(nights[cid] ?? 2) !== 1 && "s"}</span>
+                        {sample && <Chip tint={T.flightTint} color={T.flight}>sample listings</Chip>}
+                      </div>
+                      <div className="grid sm:grid-cols-2 gap-2">
+                        {hotels.map((h) => {
+                          const chosen = chosenName === h.name;
+                          const n = nights[cid] ?? 2;
+                          const path = h.pts ? bestPath(h.pid, h.pts * n, balances) : null;
+                          return (
+                            <button
+                              key={h.name}
+                              onClick={() => setHotelPicks({ ...hotelPicks, [cid]: h.name })}
+                              className="text-left rounded-xl p-3"
+                              style={{ background: chosen ? T.card : T.paper, border: `1.5px solid ${chosen ? T.gold : T.mist}` }}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-bold text-sm">{h.name}</span>
+                                {chosen && <Check size={14} style={{ color: T.gold }} />}
+                              </div>
+                              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                <Chip tint={T.railTint} color={T.rail}><Eye size={11} /> view {h.view}</Chip>
+                                <Chip tint={T.mist} color={T.inkSoft}><Star size={11} /> {h.quality}</Chip>
+                                {h.pts
+                                  ? <Chip tint={T.pineTint} color={T.pine}>{(h.pts / 1000).toFixed(0)}K {h.program}/nt</Chip>
+                                  : <Chip tint={T.mist} color={T.inkSoft}>cash only</Chip>}
+                                <span className="text-xs font-semibold" style={{ fontFamily: "'IBM Plex Mono', monospace", color: T.inkSoft }}>{usd(h.cash)}/nt</span>
+                              </div>
+                              {h.pts && chosen && (
+                                <p className="text-xs mt-1.5" style={{ color: path ? T.inkSoft : T.flight }}>
+                                  {describePath(path, h.pid)}
+                                </p>
+                              )}
+                              {chosen && (
+                                <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                                  <PayToggle
+                                    mode={hotelChoices.find((x) => x.city === cid)?.mode}
+                                    setMode={(m) => setHotelPay({ ...hotelPay, [cid]: m })}
+                                    disabled={!path}
+                                  />
+                                </div>
+                              )}
+                              <p className="text-xs mt-1.5" style={{ color: T.inkSoft }}>{h.note}</p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Cost rundown */}
+            <div>
+              <SectionLabel>Cost rundown</SectionLabel>
+              <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${T.mist}` }}>
+                {["Flights", "Hotels", "Ground"].map((g) => (
+                  <React.Fragment key={g}>
+                    {ledger.lines.filter((l) => l.group === g).map((l, i) => (
+                      <div key={g + i} className="flex items-start justify-between gap-3 px-4 py-2.5" style={{ background: T.card, borderBottom: `1px solid ${T.mist}` }}>
+                        <div>
+                          <div className="text-sm font-semibold">{l.label} {l.est && <span className="text-xs font-normal" style={{ color: T.flight }}>est.</span>}</div>
+                          {l.sub && <div className="text-xs" style={{ color: T.inkSoft }}>{l.sub}</div>}
+                        </div>
+                        <div className="text-sm font-bold whitespace-nowrap" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{l.value}</div>
+                      </div>
+                    ))}
+                  </React.Fragment>
+                ))}
+                <div className="px-4 py-3 flex flex-wrap gap-x-6 gap-y-1 items-center" style={{ background: T.paper }}>
+                  <span className="text-sm font-bold">Cash total: <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{usd(ledger.cash)}</span></span>
+                  <span className="text-sm" style={{ color: T.inkSoft }}>Retail value: {usd(ledger.retail)}</span>
+                  <span className="text-sm font-bold" style={{ color: T.pine }}>Points save you {usd(Math.max(0, ledger.retail - ledger.cash))}</span>
+                </div>
+              </div>
+
+              {/* Points usage vs balances */}
+              <div className="grid sm:grid-cols-2 gap-2 mt-3">
+                {Object.entries(ledger.usage).map(([src, pts]) => {
+                  const bal = balances[src] ?? 0;
+                  const over = pts > bal;
+                  return (
+                    <div key={src} className="rounded-xl px-4 py-3 flex items-center justify-between" style={{ background: over ? T.flightTint : T.pineTint, border: `1px solid ${over ? T.flight : T.pine}33` }}>
+                      <span className="text-sm font-bold">{SOURCES[src].short}</span>
+                      <span className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace", color: over ? T.flight : T.pine }}>
+                        {(pts / 1000).toFixed(0)}K / {(bal / 1000).toFixed(0)}K {over && "· over budget"}
                       </span>
                     </div>
-                    <div className="grid sm:grid-cols-2 gap-2">
-                      {HOTELS[cid].map((h) => {
-                        const chosen = (hotelPicks[cid] ?? HOTELS[cid][0].name) === h.name;
-                        return (
-                          <button
-                            key={h.name}
-                            onClick={() => setHotelPicks({ ...hotelPicks, [cid]: h.name })}
-                            className="text-left rounded-xl p-3 transition-all"
-                            style={{ background: chosen ? T.card : T.paper, border: `1.5px solid ${chosen ? T.gold : T.mist}` }}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-bold text-sm">{h.name}</span>
-                              {chosen && <Check size={14} style={{ color: T.gold }} />}
-                            </div>
-                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                              <Chip tint={T.railTint} color={T.rail}><Eye size={11} /> view {h.view}</Chip>
-                              <Chip tint={T.mist} color={T.inkSoft}><Star size={11} /> {h.quality}</Chip>
-                              {h.pts ? (
-                                <Chip tint={T.pineTint} color={T.pine}>{(h.pts / 1000).toFixed(0)}K {h.program}/nt</Chip>
-                              ) : (
-                                <Chip tint={T.mist} color={T.inkSoft}>cash only</Chip>
-                              )}
-                              <span className="text-xs font-semibold" style={{ fontFamily: "'IBM Plex Mono', monospace", color: T.inkSoft }}>
-                                {usd(h.cash)}/nt
-                              </span>
-                            </div>
-                            <p className="text-xs mt-1.5" style={{ color: T.inkSoft }}>{h.note}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -503,9 +663,7 @@ export default function App() {
                 {days.map((d) => (
                   <div key={d.day} className="rounded-xl p-4 flex gap-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
                     <div className="flex flex-col items-center" style={{ minWidth: 44 }}>
-                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
-                        Day
-                      </span>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>Day</span>
                       <span style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: 26, lineHeight: 1 }}>{d.day}</span>
                     </div>
                     <div className="flex-1">
@@ -513,17 +671,10 @@ export default function App() {
                       <div className="space-y-1.5">
                         {d.items.map((it, i) => (
                           <div key={i} className="flex items-start gap-2 text-sm">
-                            <span
-                              style={{
-                                color: it.icon === "flight" ? T.flight : it.icon === "train" ? T.rail : it.icon === "hotel" ? T.gold : T.inkSoft,
-                                marginTop: 2, flexShrink: 0,
-                              }}
-                            >
+                            <span style={{ color: it.icon === "flight" ? T.flight : it.icon === "train" ? T.rail : it.icon === "hotel" ? T.gold : T.inkSoft, marginTop: 2, flexShrink: 0 }}>
                               {it.icon === "flight" ? <Plane size={13} /> : it.icon === "train" ? <TrainFront size={13} /> : it.icon === "hotel" ? <Hotel size={13} /> : <MapPin size={13} />}
                             </span>
-                            <span className="text-xs font-bold whitespace-nowrap" style={{ minWidth: 68, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
-                              {it.t}
-                            </span>
+                            <span className="text-xs font-bold whitespace-nowrap" style={{ minWidth: 68, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{it.t}</span>
                             <span className="text-sm">{it.n}</span>
                           </div>
                         ))}
@@ -535,15 +686,11 @@ export default function App() {
             </div>
 
             <div className="flex justify-between items-center pb-8">
-              <button
-                onClick={() => setStep(2)}
-                className="py-3 px-4 rounded-xl font-bold text-sm flex items-center gap-1"
-                style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}
-              >
-                <ChevronLeft size={16} /> Route &amp; flights
+              <button onClick={() => setStep(2)} className="py-3 px-4 rounded-xl font-bold text-sm flex items-center gap-1" style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}>
+                <ChevronLeft size={16} /> Route & flights
               </button>
               <p className="text-xs text-right" style={{ color: T.inkSoft }}>
-                Next build phase: live award availability,<br />hotel APIs, PDF export, shareable links.
+                Estimates → live: deploy worker/ with Amadeus keys.<br />Award verification: Seats.aero integration next.
               </p>
             </div>
           </div>
