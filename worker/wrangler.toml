@@ -1,0 +1,10 @@
+name = "trip-architect-api"
+main = "index.js"
+compatibility_date = "2026-01-01"
+
+# Set secrets with:
+#   wrangler secret put AMADEUS_KEY
+#   wrangler secret put AMADEUS_SECRET
+# Use the test environment first: https://test.api.amadeus.com
+[vars]
+AMADEUS_BASE = "https://test.api.amadeus.com"
