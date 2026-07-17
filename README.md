@@ -31,10 +31,11 @@ Requires Node 18+.
 | Day-by-day itinerary assembly | ✅ Functional — `src/lib/trip.js` |
 | Transfer partners, ratios, funding paths | ✅ Real static data — `src/data/transferPartners.js` |
 | Trip cost ledger & points accounting | ✅ Functional — `src/lib/costs.js` |
-| Hotel shortlists + view/quality scores | ⚠️ Static seed data — `src/data/hotels.js` |
-| Transpacific cash + award flight options | ⚠️ **Sample data** — `src/data/flights.js` |
-
-The two stubbed layers are deliberately isolated behind stable data shapes so the UI needs no changes when live feeds are wired in.
+| Trip calendar (departure date → per-city stay dates) | ✅ Functional — `src/lib/dates.js` |
+| Cash flight itineraries & prices | ✅ **Live via Amadeus** when connected (`worker/` + `src/lib/liveMerge.js`); distance-model estimates otherwise |
+| Hotel rates for your dates | ✅ **Live via Amadeus** when connected; curated/sample listings otherwise |
+| Point values (¢/pt) | ✅ Computed against live cash fares when connected |
+| Award prices & availability | ⚠️ Published-chart estimates — live availability needs Seats.aero (roadmap) |
 
 ## Architecture
 
@@ -61,14 +62,48 @@ src/
 
 With ≤8 stops the permutation space is tiny (8! = 40,320), so every ordering is enumerated. For each ordering, the best entry and exit gateway (HND/KIX) is chosen from a door-to-door access matrix, then the route is scored on a user-weighted blend of total ground cost and total ground time. Mirror routes (the same trip run backwards) are de-duplicated. The transpacific legs are near-constant across orderings, so gateway *access* is what drives open-jaw wins — e.g. HND-in / KIX-out for Tokyo → Kyoto → Osaka.
 
+## Going live (dates, real fares, live hotel rates)
+
+The app now carries real travel dates end-to-end: pick a departure date on the
+brief step and per-city check-in/check-out dates, the return-flight date, and
+the day-by-day calendar are all derived from your nights. In live mode those
+exact dates drive Amadeus fare and hotel searches; live itineraries (real
+carriers, connections, times, prices) replace the distance-model estimates,
+and ¢/pt point values are computed against the live cash fares.
+
+Two steps to switch it on:
+
+1. **Deploy the Amadeus proxy worker** (keeps credentials server-side):
+   ```bash
+   # free keys: https://developers.amadeus.com → Self-Service → create app
+   cd worker
+   npx wrangler deploy
+   npx wrangler secret put AMADEUS_KEY
+   npx wrangler secret put AMADEUS_SECRET
+   ```
+   `wrangler.toml` points at the Amadeus **test** environment; switch
+   `AMADEUS_BASE` to `https://api.amadeus.com` (and re-issue production keys)
+   when ready for real quotas.
+2. **Point the frontend at the worker**: in Cloudflare Pages → Settings →
+   Environment variables, set `VITE_API_BASE` to the deployed worker URL
+   (e.g. `https://trip-architect-api.<account>.workers.dev`) and redeploy.
+   The header badge flips to **LIVE FARES CONNECTED**.
+
+Everything fails soft: if the worker is unreachable or a search returns
+nothing for a date, the estimate engines keep the app fully functional.
+
+**Still estimated in live mode:** award *prices* come from published-chart
+data (`src/data/awardCharts.js`) — live award *availability* needs the
+Seats.aero Partner API (commercial use requires a written agreement,
+support@seats.aero). Rail fares/times are encoded from published schedules.
+
 ## Roadmap (see `docs/mvp-plan.md` for the full plan)
 
-1. **Live cash fares** — Amadeus Self-Service Flight Offers (free sandbox). Add `VITE_AMADEUS_KEY` / `VITE_AMADEUS_SECRET` to `.env`; calls should go through a small server/worker proxy, not the browser.
-2. **Live award availability** — Seats.aero Partner API. Commercial use requires a written agreement (support@seats.aero) — engage before building against it.
-3. **Hotel data** — Amadeus hotel search + Google Places signals feeding the view/quality scoring model.
-4. **Real map layer** — replace the SVG diagram with MapLibre GL.
-5. **PDF export & shareable links** — serialize trip state to URL; render the itinerary to PDF.
-6. **Backend** — a thin API layer (Cloudflare Workers fits the existing infra) for caching fare/award lookups; caching is essential for both cost and speed.
+1. **Live award availability** — Seats.aero Partner API (see above).
+2. **Hotel scoring** — Google Places signals feeding the view/quality model for live properties.
+3. **Real map layer** — replace the SVG diagram with MapLibre GL.
+4. **PDF export & shareable links** — serialize trip state to URL; render the itinerary to PDF.
+5. **Edge caching** — cache fare/award lookups in the worker (KV) for cost and speed.
 
 ## Deploying
 

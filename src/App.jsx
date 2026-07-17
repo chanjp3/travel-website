@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import {
   Plane, TrainFront, MapPin, Clock, Check, ChevronRight, ChevronLeft,
-  Sparkles, Hotel, Wallet, Star, Info, Eye, X, Search, Globe,
+  Sparkles, Hotel, Wallet, Star, Info, Eye, X, Search, Globe, Calendar,
 } from "lucide-react";
 
 import { T } from "./theme.js";
@@ -15,6 +15,9 @@ import { hm, usd, cpp, jrPassAnalysis, buildDays, JP_NAMES } from "./lib/trip.js
 import { bestPath, fundingPaths, describePath } from "./lib/funding.js";
 import { buildLedger } from "./lib/costs.js";
 import { liveMode } from "./api/client.js";
+import { useLiveLeg, useLiveHotelsMap } from "./api/useLive.js";
+import { mergeLiveLeg, mergeLiveHotels } from "./lib/liveMerge.js";
+import { defaultDepart, buildSchedule, toISO, fmtDay, fmtShort, dateForDay } from "./lib/dates.js";
 import { Chip, SectionLabel, NightsStepper, PayToggle } from "./components/ui.jsx";
 import { RouteSpine } from "./components/RouteSpine.jsx";
 import { JourneyMap } from "./components/JourneyMap.jsx";
@@ -57,6 +60,7 @@ function CitySearch({ placeholder, exclude = [], onPick }) {
 export default function App() {
   const [step, setStep] = useState(0);
   const [originId, setOriginId] = useState("tampa");
+  const [departDate, setDepartDate] = useState(defaultDepart());
   const [destIds, setDestIds] = useState(["tokyo", "kyoto", "osaka"]);
   const [nights, setNights] = useState({ ...DEFAULT_NIGHTS });
   const [wCost, setWCost] = useState(0.5);
@@ -76,12 +80,23 @@ export default function App() {
   );
   const route = results?.top[Math.min(routeIdx, (results?.top.length ?? 1) - 1)];
 
-  // Long-haul options for the chosen route
-  const outLeg = useMemo(() => (route ? legOptions(originId, route.order[0]) : null), [route, originId]);
-  const backLeg = useMemo(
+  // Long-haul options for the chosen route: estimate set first, live merge on top
+  const outLegEst = useMemo(() => (route ? legOptions(originId, route.order[0]) : null), [route, originId]);
+  const backLegEst = useMemo(
     () => (route ? legOptions(route.order[route.order.length - 1], originId) : null),
     [route, originId]
   );
+
+  const schedule = useMemo(
+    () => buildSchedule(route, nights, departDate, outLegEst?.routing.min),
+    [route, nights, departDate, outLegEst]
+  );
+
+  const liveOut = useLiveLeg(origin.air, route?.inGw.gw, departDate, cabinPref);
+  const liveBack = useLiveLeg(route?.outGw.gw, origin.air, schedule?.returnDate, cabinPref);
+  const outLeg = useMemo(() => mergeLiveLeg(outLegEst, liveOut.offers, cabinPref), [outLegEst, liveOut.offers, cabinPref]);
+  const backLeg = useMemo(() => mergeLiveLeg(backLegEst, liveBack.offers, cabinPref), [backLegEst, liveBack.offers, cabinPref]);
+  const liveHotelsMap = useLiveHotelsMap(schedule);
 
   const pickDefault = (leg) => {
     if (!leg) return null;
@@ -107,14 +122,14 @@ export default function App() {
   const hotelChoices = useMemo(() => {
     if (!route) return [];
     return route.order.map((cid) => {
-      const { hotels, sample } = hotelsFor(cid);
+      const { hotels, sample } = mergeLiveHotels(hotelsFor(cid), liveHotelsMap[cid], nights[cid] ?? 2);
       const hotel = hotels.find((h) => h.name === hotelPicks[cid]) ?? hotels[0];
       const n = nights[cid] ?? 2;
       const path = hotel.pts ? bestPath(hotel.pid, hotel.pts * n, balances) : null;
       const requested = hotelPay[cid] ?? (pointsOnly && path ? "points" : path ? "points" : "cash");
       return { city: cid, hotel, nights: n, sample, path, mode: requested === "points" && path ? "points" : "cash" };
     });
-  }, [route, hotelPicks, hotelPay, nights, balances, pointsOnly]);
+  }, [route, hotelPicks, hotelPay, nights, balances, pointsOnly, liveHotelsMap]);
 
   const ledger = useMemo(() => {
     if (!route || !fOut || !fBack) return null;
@@ -203,6 +218,23 @@ export default function App() {
                   <Chip tint={T.railTint} color={T.rail}>{origin.name} · {origin.air}</Chip>
                 </div>
                 <CitySearch placeholder="Change origin city…" exclude={[originId]} onPick={(c) => setOriginId(c.id)} />
+              </div>
+
+              <div className="mt-4 rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Calendar size={15} style={{ color: T.rail }} />
+                  <span className="text-sm font-bold">Departure date</span>
+                  {schedule && <Chip tint={T.railTint} color={T.rail}>home {fmtDay(schedule.returnDate)}</Chip>}
+                </div>
+                <input
+                  type="date" value={departDate} min={toISO(new Date())}
+                  onChange={(e) => { if (e.target.value) { setDepartDate(e.target.value); setFlightSel({}); } }}
+                  className="w-full px-3 py-2 rounded-xl text-sm font-semibold"
+                  style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'IBM Plex Mono', monospace" }}
+                />
+                <p className="text-xs mt-2" style={{ color: T.inkSoft }}>
+                  Flights and hotel rates are priced for these exact dates{liveMode() ? " with live data" : " once live data is connected"}.
+                </p>
               </div>
 
               <div className="mt-4 rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
@@ -425,9 +457,9 @@ export default function App() {
             {/* Long-haul flights with funding paths */}
             <div className="grid md:grid-cols-2 gap-5">
               {[
-                { key: "out", dir: `Outbound · ${origin.air} → ${route.inGw.gw}`, leg: outLeg, sel: outId },
-                { key: "back", dir: `Return · ${route.outGw.gw} → ${origin.air}`, leg: backLeg, sel: backId },
-              ].map(({ key, dir, leg, sel }) => {
+                { key: "out", dir: `Outbound · ${origin.air} → ${route.inGw.gw} · ${fmtDay(departDate)}`, leg: outLeg, sel: outId, loading: liveOut.loading },
+                { key: "back", dir: `Return · ${route.outGw.gw} → ${origin.air}${schedule ? ` · ${fmtDay(schedule.returnDate)}` : ""}`, leg: backLeg, sel: backId, loading: liveBack.loading },
+              ].map(({ key, dir, leg, sel, loading }) => {
                 const visible = leg.options.filter((f) => {
                   if (f.cabin !== cabinPref && !f.cashOnly) return false;
                   if (pointsOnly) return f.points && bestPath(f.programId, f.points, balances);
@@ -437,7 +469,15 @@ export default function App() {
                 return (
                   <div key={key}>
                     <SectionLabel>{dir}</SectionLabel>
-                    {leg.routing.stops > 0 && (
+                    {loading && (
+                      <p className="text-xs mb-2" style={{ color: T.flight }}>Fetching live fares for your dates…</p>
+                    )}
+                    {leg.live && (
+                      <p className="text-xs mb-2" style={{ color: T.pine }}>
+                        <b>Live fares loaded</b> — real itineraries and prices for this date; ¢/pt values use them.
+                      </p>
+                    )}
+                    {leg.routing.stops > 0 && !leg.live && (
                       <p className="text-xs mb-2" style={{ color: T.inkSoft }}>
                         No practical nonstop — routing connects <b>via {leg.routing.via.air} ({leg.routing.via.name})</b>.
                       </p>
@@ -457,10 +497,17 @@ export default function App() {
                               <div className="flex items-center gap-2">
                                 <Plane size={14} style={{ color: T.flight }} />
                                 <span className="font-bold text-sm">{f.airline} · {f.cabin}</span>
-                                {f.est && <Chip tint={T.flightTint} color={T.flight}>est.</Chip>}
+                                {f.live
+                                  ? <Chip tint={T.pineTint} color={T.pine}>LIVE</Chip>
+                                  : f.est && <Chip tint={T.flightTint} color={T.flight}>est.</Chip>}
                               </div>
-                              <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{f.via} · {f.dur}</span>
+                              <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
+                                {f.dep ? `${f.dep}–${f.arr} · ` : ""}{f.via} · {f.dur}
+                              </span>
                             </div>
+                            {f.flightNos && (
+                              <p className="text-xs mt-1" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{f.flightNos}</p>
+                            )}
                             <div className="flex items-center justify-between mt-2 flex-wrap gap-1">
                               {f.points ? (
                                 <div className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
@@ -471,8 +518,8 @@ export default function App() {
                                 <div className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{usd(f.cash)}</div>
                               )}
                               <div className="flex gap-1.5">
-                                {f.points && <Chip tint={T.pineTint} color={T.pine}>{cpp(f)}¢/pt</Chip>}
-                                {f.points && <Chip tint={T.mist} color={T.inkSoft}>cash {usd(f.cash)}</Chip>}
+                                {f.points && <Chip tint={T.pineTint} color={T.pine}>{cpp(f)}¢/pt{f.liveCash ? " · live" : ""}</Chip>}
+                                {f.points && <Chip tint={T.mist} color={T.inkSoft}>cash {usd(f.cash)}{f.liveCash ? " live" : ""}</Chip>}
                               </div>
                             </div>
                             {f.points && (
@@ -526,7 +573,7 @@ export default function App() {
                   {days.length} days · {origin.name} → {route.order.map((c) => cityById[c].name).join(" → ")}
                 </h2>
                 <span className="text-xs opacity-70" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
-                  {route.inGw.gw} IN · {route.outGw.gw} OUT{route.inGw.gw !== route.outGw.gw && " · OPEN JAW"}
+                  {fmtShort(departDate)} – {schedule ? fmtShort(schedule.returnDate) : ""} · {route.inGw.gw} IN · {route.outGw.gw} OUT{route.inGw.gw !== route.outGw.gw && " · OPEN JAW"}
                 </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
@@ -557,14 +604,22 @@ export default function App() {
               <SectionLabel>Hotels — points program or cash</SectionLabel>
               <div className="space-y-4">
                 {route.order.map((cid) => {
-                  const { hotels, sample } = hotelsFor(cid);
+                  const { hotels, sample, live } = mergeLiveHotels(hotelsFor(cid), liveHotelsMap[cid], nights[cid] ?? 2);
                   const chosenName = hotelPicks[cid] ?? hotels[0].name;
+                  const stay = schedule?.byCity[cid];
                   return (
                     <div key={cid}>
-                      <div className="flex items-baseline gap-2 mb-2">
+                      <div className="flex items-baseline gap-2 mb-2 flex-wrap">
                         <span className="font-bold text-sm">{cityById[cid].name}</span>
                         <span className="text-xs" style={{ color: T.inkSoft }}>{nights[cid] ?? 2} night{(nights[cid] ?? 2) !== 1 && "s"}</span>
-                        {sample && <Chip tint={T.flightTint} color={T.flight}>sample listings</Chip>}
+                        {stay && (
+                          <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
+                            {fmtShort(stay.checkIn)} → {fmtShort(stay.checkOut)}
+                          </span>
+                        )}
+                        {live
+                          ? <Chip tint={T.pineTint} color={T.pine}>live rates</Chip>
+                          : sample && <Chip tint={T.flightTint} color={T.flight}>sample listings</Chip>}
                       </div>
                       <div className="grid sm:grid-cols-2 gap-2">
                         {hotels.map((h) => {
@@ -583,8 +638,9 @@ export default function App() {
                                 {chosen && <Check size={14} style={{ color: T.gold }} />}
                               </div>
                               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                                <Chip tint={T.railTint} color={T.rail}><Eye size={11} /> view {h.view}</Chip>
-                                <Chip tint={T.mist} color={T.inkSoft}><Star size={11} /> {h.quality}</Chip>
+                                {h.view != null && <Chip tint={T.railTint} color={T.rail}><Eye size={11} /> view {h.view}</Chip>}
+                                {h.quality != null && <Chip tint={T.mist} color={T.inkSoft}><Star size={11} /> {h.quality}</Chip>}
+                                {(h.live || h.liveCash) && <Chip tint={T.pineTint} color={T.pine}>LIVE</Chip>}
                                 {h.pts
                                   ? <Chip tint={T.pineTint} color={T.pine}>{(h.pts / 1000).toFixed(0)}K {h.program}/nt</Chip>
                                   : <Chip tint={T.mist} color={T.inkSoft}>cash only</Chip>}
@@ -662,9 +718,14 @@ export default function App() {
               <div className="space-y-3">
                 {days.map((d) => (
                   <div key={d.day} className="rounded-xl p-4 flex gap-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
-                    <div className="flex flex-col items-center" style={{ minWidth: 44 }}>
+                    <div className="flex flex-col items-center" style={{ minWidth: 52 }}>
                       <span className="text-xs font-bold uppercase tracking-wide" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>Day</span>
                       <span style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: 26, lineHeight: 1 }}>{d.day}</span>
+                      {schedule && (
+                        <span className="text-xs mt-1 whitespace-nowrap" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
+                          {fmtShort(dateForDay(schedule, d.day))}
+                        </span>
+                      )}
                     </div>
                     <div className="flex-1">
                       <div className="font-bold text-sm mb-2" style={{ fontFamily: "'Zen Old Mincho', serif", fontSize: 15 }}>{d.title}</div>
