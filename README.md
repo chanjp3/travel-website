@@ -14,6 +14,13 @@ npm run build      # production build → dist/
 
 Requires Node 18+.
 
+## v0.2 — the funding engine
+
+- **Transfer-partner engine** (`src/data/transferPartners.js` + `src/lib/funding.js`) — real Amex MR / Chase UR / Bilt transfer tables with ratios and transfer times. Every award shows its concrete funding path, e.g. *"Transfer 60,000 Amex MR → Virgin Atlantic (instant)"* or *"Book directly with 90,000 Alaska miles."*
+- **Points-only mode** — filters flights and hotels to what current balances can actually fund via those paths.
+- **Hotels step** — points vs. cash per property; hotel awards fund through card transfers too (Chase UR → Hyatt).
+- **Cost rundown** (`src/lib/costs.js`) — full trip ledger: itemized flights/hotels/ground with the JR Pass decision applied automatically, points spent per currency with before/used/after balances, over-commitment warnings, total cash out of pocket, and retail-value comparison.
+
 ## What's real vs. stubbed
 
 | Layer | Status |
@@ -22,6 +29,8 @@ Requires Node 18+.
 | Japan rail network (times, fares, services) | ✅ Encoded from published schedules — `src/data/rail.js` |
 | JR Pass break-even analysis | ✅ Functional — `src/lib/trip.js` |
 | Day-by-day itinerary assembly | ✅ Functional — `src/lib/trip.js` |
+| Transfer partners, ratios, funding paths | ✅ Real static data — `src/data/transferPartners.js` |
+| Trip cost ledger & points accounting | ✅ Functional — `src/lib/costs.js` |
 | Hotel shortlists + view/quality scores | ⚠️ Static seed data — `src/data/hotels.js` |
 | Transpacific cash + award flight options | ⚠️ **Sample data** — `src/data/flights.js` |
 
