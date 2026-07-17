@@ -393,8 +393,8 @@ export default function App() {
                 <p className="text-xs leading-relaxed">
                   <b>{liveMode() ? "Live mode" : "Estimate mode"}:</b>{" "}
                   {liveMode()
-                    ? "cash fares come from live Amadeus searches for your dates, and award rows marked LIVE AWARD are verified bookable space via Seats.aero (chart estimates fill any gaps)."
-                    : "award prices come from published-chart estimates and cash fares from a distance model. Deploy the included Worker with your Amadeus + Seats.aero keys for live fares and verified award space."}
+                    ? "cash fares and hotel rates come from live market data for your dates, and award rows marked LIVE AWARD are verified bookable space via Seats.aero (chart estimates fill any gaps)."
+                    : "award prices come from published-chart estimates and cash fares from a distance model. Deploy the included Worker with your API keys for live prices and verified award space."}
                 </p>
               </div>
 
@@ -628,7 +628,7 @@ export default function App() {
                                 )}
                               </div>
                               <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
-                                {f.dep ? `${f.dep}–${f.arr} · ` : ""}{f.via} · {f.dur}
+                                {f.dep ? `${f.dep}${f.arr ? `–${f.arr}` : ""} · ` : ""}{f.via}{f.dur ? ` · ${f.dur}` : ""}
                               </span>
                             </div>
                             {f.flightNos && (
@@ -878,8 +878,8 @@ export default function App() {
               </button>
               <p className="text-xs text-right" style={{ color: T.inkSoft }}>
                 {liveMode()
-                  ? <>Cash fares & hotels: Amadeus · award space: Seats.aero.<br />Rows marked est. still use published-chart estimates.</>
-                  : <>Estimates → live: deploy worker/ with Amadeus + Seats.aero keys.<br />See README · “Going live”.</>}
+                  ? <>Cash fares & hotels: live market data · award space: Seats.aero.<br />Rows marked est. still use published-chart estimates.</>
+                  : <>Estimates → live: deploy worker/ with your API keys.<br />See README · “Going live”.</>}
               </p>
             </div>
           </div>

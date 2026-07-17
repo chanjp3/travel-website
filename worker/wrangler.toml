@@ -3,9 +3,9 @@ main = "index.js"
 compatibility_date = "2026-01-01"
 
 # Set secrets with:
-#   wrangler secret put AMADEUS_KEY
-#   wrangler secret put AMADEUS_SECRET
-#   wrangler secret put SEATSAERO_KEY     # Seats.aero Partner API (live awards)
-# Use the test environment first: https://test.api.amadeus.com
+#   wrangler secret put TRAVELPAYOUTS_TOKEN  # flights (Aviasales) + hotels (Hotellook), free
+#   wrangler secret put SEATSAERO_KEY        # Seats.aero Partner API (live awards)
+#   wrangler secret put AMADEUS_KEY          # optional — Enterprise API Portal only
+#   wrangler secret put AMADEUS_SECRET       #   (self-service was decommissioned 2026-07-17)
 [vars]
 AMADEUS_BASE = "https://test.api.amadeus.com"

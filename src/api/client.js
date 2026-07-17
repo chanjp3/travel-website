@@ -24,11 +24,12 @@ export const liveFlights = (from, to, date, cabin) =>
 /** Seats.aero award availability for a route+date (null when not configured). */
 export const liveAwards = (from, to, date) => get("/api/awards", { from, to, date });
 
-/** Hotels for a city object: geocode search for custom towns, city code otherwise. */
+/** Hotels for a city object. Name drives Hotellook lookup (works for any
+ *  town); code/geocode serve the Amadeus branch when that's configured. */
 export const liveHotels = (city, checkIn, checkOut) =>
   city.custom
-    ? get("/api/hotels", { lat: city.lat, lon: city.lon, checkIn, checkOut })
-    : get("/api/hotels", { cityCode: city.cc ?? city.air, checkIn, checkOut });
+    ? get("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, checkIn, checkOut })
+    : get("/api/hotels", { cityCode: city.cc ?? city.air, name: city.name, checkIn, checkOut });
 
 /**
  * Town geocoder — Open-Meteo, free and keyless, called directly from the

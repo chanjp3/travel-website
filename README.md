@@ -32,8 +32,8 @@ Requires Node 18+.
 | Transfer partners, ratios, funding paths | ✅ Real static data — `src/data/transferPartners.js` |
 | Trip cost ledger & points accounting | ✅ Functional — `src/lib/costs.js` |
 | Trip calendar (departure date → per-city stay dates) | ✅ Functional — `src/lib/dates.js` |
-| Cash flight itineraries & prices | ✅ **Live via Amadeus** when connected (`worker/` + `src/lib/liveMerge.js`); distance-model estimates otherwise |
-| Hotel rates for your dates | ✅ **Live via Amadeus** when connected; curated/sample listings otherwise |
+| Cash flight itineraries & prices | ✅ **Live market fares** (Travelpayouts/Aviasales; Amadeus Enterprise branch kept) when connected; distance-model estimates otherwise |
+| Hotel rates for your dates | ✅ **Live via Hotellook** (or Amadeus Enterprise) when connected; curated/sample listings otherwise |
 | Point values (¢/pt) | ✅ Computed against live cash fares when connected |
 | Award prices & availability | ✅ **Live via Seats.aero** when `SEATSAERO_KEY` set (verified space + real mileage prices); chart estimates otherwise |
 
@@ -46,7 +46,7 @@ src/
 ├── data/
 │   ├── cities.js           # city dataset + optimizer-aware suggestions
 │   ├── rail.js             # rail edges, gateways, airport access matrix
-│   ├── flights.js          # ← SWAP POINT for Amadeus (cash) + Seats.aero (award)
+│   ├── flights.js          # ← SWAP POINT for live cash fares + Seats.aero (award)
 │   ├── hotels.js           # ← SWAP POINT for hotel APIs + Places scoring
 │   └── attractions.js      # attraction pool with visit durations
 ├── lib/
@@ -67,28 +67,39 @@ With ≤8 stops the permutation space is tiny (8! = 40,320), so every ordering i
 The app now carries real travel dates end-to-end: pick a departure date on the
 brief step and per-city check-in/check-out dates, the return-flight date, and
 the day-by-day calendar are all derived from your nights. In live mode those
-exact dates drive Amadeus fare and hotel searches; live itineraries (real
+exact dates drive live fare and hotel searches; live itineraries (real
 carriers, connections, times, prices) replace the distance-model estimates,
 and ¢/pt point values are computed against the live cash fares.
 
+> **Provider note (July 2026):** Amadeus decommissioned its free Self-Service
+> API portal on 2026-07-17 — those keys no longer exist for new users. The
+> worker's default live provider is now **Travelpayouts** (free token):
+> Aviasales cached market fares for flights and Hotellook for hotel prices.
+> The Amadeus branch remains for Enterprise API Portal customers, and
+> **Duffel** is the upgrade path if you later need bookable live inventory.
+
 Two steps to switch it on:
 
-1. **Deploy the Amadeus proxy worker** (keeps credentials server-side):
+1. **Deploy the proxy worker** (keeps all credentials server-side):
    ```bash
-   # free keys: https://developers.amadeus.com → Self-Service → create app
+   # free token: https://www.travelpayouts.com → sign up → Tools → API token
    cd worker
    npx wrangler deploy
-   npx wrangler secret put AMADEUS_KEY
-   npx wrangler secret put AMADEUS_SECRET
-   npx wrangler secret put SEATSAERO_KEY   # optional: live award space (Partner API)
+   npx wrangler secret put TRAVELPAYOUTS_TOKEN   # flights + hotels (free)
+   npx wrangler secret put SEATSAERO_KEY         # live award space (Partner API)
+   # optional, Enterprise customers only:
+   #   npx wrangler secret put AMADEUS_KEY && npx wrangler secret put AMADEUS_SECRET
    ```
-   `wrangler.toml` points at the Amadeus **test** environment; switch
-   `AMADEUS_BASE` to `https://api.amadeus.com` (and re-issue production keys)
-   when ready for real quotas.
 2. **Point the frontend at the worker**: in Cloudflare Pages → Settings →
    Environment variables, set `VITE_API_BASE` to the deployed worker URL
    (e.g. `https://trip-architect-api.<account>.workers.dev`) and redeploy.
    The header badge flips to **LIVE FARES CONNECTED**.
+
+Travelpayouts caveats: fares are cached economy market prices from real
+Aviasales searches (great for planning, not a booking guarantee), and hotel
+prices are Hotellook stay averages. Business-cabin cash rows therefore stay
+distance-model estimates — but business *awards* are fully live via
+Seats.aero, which is what the points math actually needs.
 
 Everything fails soft: if the worker is unreachable or a search returns
 nothing for a date, the estimate engines keep the app fully functional.

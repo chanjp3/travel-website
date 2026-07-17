@@ -1,14 +1,19 @@
 /**
  * Cloudflare Worker — API proxy for Trip Architect.
- * Keeps Amadeus + Seats.aero credentials server-side (same pattern as the
- * WSA empty-legs worker). Endpoints:
+ * Keeps provider credentials server-side. Endpoints:
  *   GET /api/locations?q=par            → city/airport autocomplete
  *   GET /api/flights?from=TPA&to=HND&date=2026-10-12&adults=1&cabin=BUSINESS
- *   GET /api/hotels?cityCode=TYO&checkIn=2026-10-13&checkOut=2026-10-16
- *   GET /api/hotels?lat=50.81&lon=-0.37&checkIn=…&checkOut=…   (towns)
+ *   GET /api/hotels?cityCode=TYO&name=Tokyo&checkIn=…&checkOut=…
+ *   GET /api/hotels?lat=50.81&lon=-0.37&name=Worthing&checkIn=…&checkOut=…
  *   GET /api/awards?from=TPA&to=HND&date=2026-10-12
  *       → Seats.aero cached award availability for that exact route+date
- * Secrets: AMADEUS_KEY, AMADEUS_SECRET, SEATSAERO_KEY (Partner API).
+ *
+ * Providers (checked in this order per endpoint):
+ *   TRAVELPAYOUTS_TOKEN — free tier. Aviasales cached market fares
+ *     (economy) + Hotellook hotel prices. travelpayouts.com → API token.
+ *   AMADEUS_KEY/SECRET — Enterprise API portal only since 2026-07-17
+ *     (self-service portal decommissioned); branch kept for those keys.
+ *   SEATSAERO_KEY — Seats.aero Partner API for live award space.
  */
 let tokenCache = { token: null, exp: 0 };
 
@@ -41,6 +46,72 @@ const CORS = {
 };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: CORS });
 
+/* ── Travelpayouts (Aviasales + Hotellook) ─────────────────────────────── */
+
+async function tpGet(urlStr, token) {
+  const res = await fetch(urlStr, { headers: { "X-Access-Token": token, Accept: "application/json" } });
+  if (!res.ok) throw new Error(`Travelpayouts failed: ${res.status}`);
+  return res.json();
+}
+
+/** Aviasales cached market fares (economy) → the app's flight-offer shape. */
+async function tpFlights(env, q) {
+  const u = new URL("https://api.travelpayouts.com/aviasales/v3/prices_for_dates");
+  u.searchParams.set("origin", q.from);
+  u.searchParams.set("destination", q.to);
+  u.searchParams.set("departure_at", q.date);
+  u.searchParams.set("one_way", "true");
+  u.searchParams.set("direct", "false");
+  u.searchParams.set("unique", "false");
+  u.searchParams.set("sorting", "price");
+  u.searchParams.set("limit", "10");
+  u.searchParams.set("currency", "usd");
+  const j = await tpGet(u.toString(), env.TRAVELPAYOUTS_TOKEN);
+  return (j.data ?? []).map((o) => {
+    const min = o.duration ?? null;
+    return {
+      price: +o.price,
+      carrier: o.airline,
+      cabin: "ECONOMY", // cached Aviasales fares are economy market prices
+      transfers: o.transfers ?? 0,
+      itineraries: [{
+        duration: min != null ? `PT${Math.floor(min / 60)}H${min % 60}M` : null,
+        segments: [{
+          from: o.origin ?? q.from, to: o.destination ?? q.to,
+          dep: o.departure_at, arr: null,
+          carrier: o.airline, num: o.flight_number,
+        }],
+      }],
+    };
+  });
+}
+
+/** Hotellook: resolve any place name (cities or small towns) → cached prices. */
+async function tpHotels(env, q) {
+  const lu = new URL("https://engine.hotellook.com/api/v2/lookup.json");
+  lu.searchParams.set("query", q.name ?? q.cityCode ?? `${q.lat},${q.lon}`);
+  lu.searchParams.set("lang", "en");
+  lu.searchParams.set("lookFor", "city");
+  lu.searchParams.set("limit", "1");
+  const found = await tpGet(lu.toString(), env.TRAVELPAYOUTS_TOKEN);
+  const loc = found.results?.locations?.[0];
+  if (!loc) return [];
+  const cu = new URL("https://engine.hotellook.com/api/v2/cache.json");
+  cu.searchParams.set("locationId", loc.id);
+  cu.searchParams.set("checkIn", q.checkIn);
+  cu.searchParams.set("checkOut", q.checkOut);
+  cu.searchParams.set("currency", "usd");
+  cu.searchParams.set("limit", "12");
+  const rows = await tpGet(cu.toString(), env.TRAVELPAYOUTS_TOKEN);
+  return (Array.isArray(rows) ? rows : []).map((h) => ({
+    name: h.hotelName ?? h.hotelName_en ?? h.name,
+    id: h.hotelId,
+    price: +h.priceAvg || +h.priceFrom || null, // total for the stay
+    stars: h.stars ?? null,
+    lat: h.location?.geo?.lat ?? null, lon: h.location?.geo?.lon ?? null,
+  })).filter((h) => h.name && h.price);
+}
+
 export default {
   async fetch(req, env) {
     if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
@@ -58,6 +129,7 @@ export default {
         })) ?? []);
       }
       if (url.pathname === "/api/flights") {
+        if (!env.AMADEUS_KEY && env.TRAVELPAYOUTS_TOKEN) return json(await tpFlights(env, q));
         const r = await amadeus(env, "/v2/shopping/flight-offers", {
           originLocationCode: q.from, destinationLocationCode: q.to,
           departureDate: q.date, adults: q.adults ?? 1,
@@ -76,6 +148,7 @@ export default {
         })) ?? []);
       }
       if (url.pathname === "/api/hotels") {
+        if (!env.AMADEUS_KEY && env.TRAVELPAYOUTS_TOKEN) return json(await tpHotels(env, q));
         // Small towns arrive as lat/lon (no IATA city code) — search by geocode
         // with no star filter; cities use the code with a 4–5★ shortlist.
         const list = q.lat && q.lon
