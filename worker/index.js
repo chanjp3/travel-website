@@ -72,9 +72,15 @@ export default {
         })) ?? []);
       }
       if (url.pathname === "/api/hotels") {
-        const list = await amadeus(env, "/v1/reference-data/locations/hotels/by-city", {
-          cityCode: q.cityCode, radius: 10, radiusUnit: "KM", ratings: "4,5",
-        });
+        // Small towns arrive as lat/lon (no IATA city code) — search by geocode
+        // with no star filter; cities use the code with a 4–5★ shortlist.
+        const list = q.lat && q.lon
+          ? await amadeus(env, "/v1/reference-data/locations/hotels/by-geocode", {
+              latitude: q.lat, longitude: q.lon, radius: 12, radiusUnit: "KM",
+            })
+          : await amadeus(env, "/v1/reference-data/locations/hotels/by-city", {
+              cityCode: q.cityCode, radius: 10, radiusUnit: "KM", ratings: "4,5",
+            });
         const ids = (list.data ?? []).slice(0, 20).map((h) => h.hotelId).join(",");
         if (!ids) return json([]);
         const offers = await amadeus(env, "/v3/shopping/hotel-offers", {

@@ -35,8 +35,7 @@ export function useLiveHotelsMap(schedule) {
     (async () => {
       const out = {};
       for (const { cid, checkIn, checkOut } of schedule.cities) {
-        const c = cityById[cid];
-        out[cid] = await liveHotels(c.cc ?? c.air, checkIn, checkOut);
+        out[cid] = await liveHotels(cityById[cid], checkIn, checkOut);
         if (!on) return;
         setMap({ ...out });
       }

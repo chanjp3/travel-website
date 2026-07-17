@@ -1,11 +1,11 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Plane, TrainFront, MapPin, Clock, Check, ChevronRight, ChevronLeft,
   Sparkles, Hotel, Wallet, Star, Info, Eye, X, Search, Globe, Calendar,
 } from "lucide-react";
 
 import { T } from "./theme.js";
-import { WORLD, cityById, searchCities } from "./data/world.js";
+import { WORLD, cityById, searchCities, registerCity, makeCustomCity } from "./data/world.js";
 import { SOURCES, BALANCE_SOURCES, DEFAULT_BALANCES } from "./data/transferPartners.js";
 import { packFor, packById } from "./data/corridors/index.js";
 import { scoreRoutes, permutations } from "./lib/optimizer.js";
@@ -14,7 +14,8 @@ import { hotelsFor } from "./lib/hotelsEngine.js";
 import { hm, usd, cpp, jrPassAnalysis, buildDays, JP_NAMES } from "./lib/trip.js";
 import { bestPath, fundingPaths, describePath } from "./lib/funding.js";
 import { buildLedger } from "./lib/costs.js";
-import { liveMode } from "./api/client.js";
+import { liveMode, geoSearch } from "./api/client.js";
+import { suggestCities } from "./lib/suggest.js";
 import { useLiveLeg, useLiveHotelsMap } from "./api/useLive.js";
 import { mergeLiveLeg, mergeLiveHotels } from "./lib/liveMerge.js";
 import { defaultDepart, buildSchedule, toISO, fmtDay, fmtShort, dateForDay } from "./lib/dates.js";
@@ -22,11 +23,31 @@ import { Chip, SectionLabel, NightsStepper, PayToggle } from "./components/ui.js
 import { RouteSpine } from "./components/RouteSpine.jsx";
 import { JourneyMap } from "./components/JourneyMap.jsx";
 
-const DEFAULT_NIGHTS = { tokyo: 3, kyoto: 3, osaka: 2, hakone: 1, nara: 1, hiroshima: 1, kanazawa: 1 };
-
-function CitySearch({ placeholder, exclude = [], onPick }) {
+function CitySearch({ placeholder, exclude = [], onPick, towns = true }) {
   const [q, setQ] = useState("");
+  const [townHits, setTownHits] = useState([]);
   const hits = useMemo(() => searchCities(q).filter((c) => !exclude.includes(c.id)), [q, exclude]);
+
+  // Geocode smaller towns (Worthing, Arundel…) that the curated list lacks.
+  useEffect(() => {
+    if (!towns || q.trim().length < 3) { setTownHits([]); return; }
+    let on = true;
+    const t = setTimeout(async () => {
+      const res = await geoSearch(q.trim());
+      if (!on) return;
+      const known = new Set(searchCities(q).map((c) => `${c.name}|${c.country}`.toLowerCase()));
+      setTownHits(
+        res
+          .filter((g) => g.latitude != null && !known.has(`${g.name}|${g.country}`.toLowerCase()))
+          .slice(0, 4)
+      );
+    }, 350);
+    return () => { on = false; clearTimeout(t); };
+  }, [q, towns]);
+
+  const pick = (c) => { onPick(c); setQ(""); setTownHits([]); };
+  const pickTown = (g) => pick(registerCity(makeCustomCity(g)));
+
   return (
     <div className="relative">
       <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
@@ -38,17 +59,31 @@ function CitySearch({ placeholder, exclude = [], onPick }) {
           className="flex-1 text-sm outline-none bg-transparent"
         />
       </div>
-      {hits.length > 0 && (
+      {(hits.length > 0 || townHits.length > 0) && (
         <div className="absolute z-10 mt-1 w-full rounded-xl overflow-hidden shadow-lg" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
           {hits.map((c) => (
             <button
               key={c.id}
-              onClick={() => { onPick(c); setQ(""); }}
+              onClick={() => pick(c)}
               className="w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:opacity-70"
               style={{ borderBottom: `1px solid ${T.mist}` }}
             >
               <span><b>{c.name}</b> <span style={{ color: T.inkSoft }}>· {c.country}</span></span>
               <span className="text-xs font-bold" style={{ color: T.rail, fontFamily: "'IBM Plex Mono', monospace" }}>{c.air}</span>
+            </button>
+          ))}
+          {townHits.map((g) => (
+            <button
+              key={`${g.name}-${g.latitude}-${g.longitude}`}
+              onClick={() => pickTown(g)}
+              className="w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:opacity-70"
+              style={{ borderBottom: `1px solid ${T.mist}` }}
+            >
+              <span>
+                <b>{g.name}</b>{" "}
+                <span style={{ color: T.inkSoft }}>· {g.admin1 ? `${g.admin1}, ` : ""}{g.country}</span>
+              </span>
+              <Chip tint={T.pineTint} color={T.pine}>town</Chip>
             </button>
           ))}
         </div>
@@ -57,12 +92,19 @@ function CitySearch({ placeholder, exclude = [], onPick }) {
   );
 }
 
+const SUGGEST_META = {
+  hakone: { why: "On the Tokaido corridor between Tokyo and Kyoto — an onsen night costs almost no detour.", add: "+1h 10m · ≈$46 rail" },
+  nara: { why: "45 min from Kyoto or Osaka — Todai-ji and the bowing deer.", add: "+1h 35m · ≈$10 rail" },
+  kanazawa: { why: "The quieter Hokuriku arc: Kenroku-en garden, geisha district.", add: "+2h 20m · ≈$95 rail" },
+  hiroshima: { why: "Peace Memorial + Miyajima, 1h 25m past Osaka.", add: "+2h 50m · ≈$142 rail" },
+};
+
 export default function App() {
   const [step, setStep] = useState(0);
   const [originId, setOriginId] = useState("tampa");
   const [departDate, setDepartDate] = useState(defaultDepart());
-  const [destIds, setDestIds] = useState(["tokyo", "kyoto", "osaka"]);
-  const [nights, setNights] = useState({ ...DEFAULT_NIGHTS });
+  const [destIds, setDestIds] = useState([]);
+  const [nights, setNights] = useState({});
   const [wCost, setWCost] = useState(0.5);
   const [cabinPref, setCabinPref] = useState("Business");
   const [pointsOnly, setPointsOnly] = useState(true);
@@ -149,15 +191,22 @@ export default function App() {
     return jp.suggestions.filter((s) => !destIds.includes(s));
   }, [destIds]);
 
+  // Builder suggestions: curated pack picks first (Japan rail arc), then
+  // major cities in / around the primary destination's country.
+  const suggestions = useMemo(() => {
+    if (!destIds.length) return [];
+    const jp = japanSuggestions.map((cid) => ({
+      city: cityById[cid],
+      why: SUGGEST_META[cid]?.why,
+      add: SUGGEST_META[cid]?.add,
+    }));
+    const seen = new Set(jp.map((s) => s.city.id));
+    const geo = suggestCities(destIds, originId, 6).filter((s) => !seen.has(s.city.id));
+    return [...jp, ...geo].slice(0, 6);
+  }, [destIds, originId, japanSuggestions]);
+
   const steps = ["Trip brief", "Destinations", "Route & flights", "Itinerary & cost"];
   const setN = (cid, n) => setNights({ ...nights, [cid]: n });
-
-  const SUGGEST_META = {
-    hakone: { why: "On the Tokaido corridor between Tokyo and Kyoto — an onsen night costs almost no detour.", add: "+1h 10m · ≈$46 rail" },
-    nara: { why: "45 min from Kyoto or Osaka — Todai-ji and the bowing deer.", add: "+1h 35m · ≈$10 rail" },
-    kanazawa: { why: "The quieter Hokuriku arc: Kenroku-en garden, geisha district.", add: "+2h 20m · ≈$95 rail" },
-    hiroshima: { why: "Peace Memorial + Miyajima, 1h 25m past Osaka.", add: "+2h 50m · ≈$142 rail" },
-  };
 
   return (
     <div className="min-h-screen" style={{ background: T.paper, color: T.ink, fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
@@ -218,6 +267,31 @@ export default function App() {
                   <Chip tint={T.railTint} color={T.rail}>{origin.name} · {origin.air}</Chip>
                 </div>
                 <CitySearch placeholder="Change origin city…" exclude={[originId]} onPick={(c) => setOriginId(c.id)} />
+              </div>
+
+              <div className="mt-4 rounded-xl p-4" style={{ background: T.card, border: `1.5px solid ${destIds.length ? T.mist : T.rail}` }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <MapPin size={15} style={{ color: T.rail }} />
+                  <span className="text-sm font-bold">Primary destination</span>
+                  {destIds[0] && (
+                    <Chip tint={T.pineTint} color={T.pine}>
+                      {cityById[destIds[0]].name} · {cityById[destIds[0]].air}
+                    </Chip>
+                  )}
+                </div>
+                <CitySearch
+                  placeholder="Where to? Any city — or a smaller town…"
+                  exclude={[originId, ...destIds]}
+                  onPick={(c) => {
+                    setDestIds([c.id, ...destIds.slice(1)]);
+                    if (!nights[c.id]) setN(c.id, 3);
+                    setRouteIdx(0); setFlightSel({}); setHotelPicks({});
+                  }}
+                />
+                <p className="text-xs mt-2" style={{ color: T.inkSoft }}>
+                  Start with your main stop — the builder then suggests cities around it, and the search
+                  also finds smaller towns with hotels priced for your dates.
+                </p>
               </div>
 
               <div className="mt-4 rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
@@ -313,8 +387,13 @@ export default function App() {
                 </p>
               </div>
 
-              <button onClick={() => setStep(1)} className="w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 text-white" style={{ background: T.ink }}>
-                Choose destinations <ChevronRight size={16} />
+              <button
+                onClick={() => setStep(1)}
+                disabled={!destIds.length}
+                className="w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 text-white disabled:opacity-40"
+                style={{ background: T.ink }}
+              >
+                {destIds.length ? "Build the trip" : "Pick a primary destination first"} <ChevronRight size={16} />
               </button>
             </div>
           </div>
@@ -323,12 +402,24 @@ export default function App() {
         {/* ── STEP 1 · DESTINATIONS ── */}
         {step === 1 && (
           <div>
-            <SectionLabel>Destinations — anywhere</SectionLabel>
+            <SectionLabel>
+              {destIds.length ? `Build around ${cityById[destIds[0]].name}` : "Destinations"}
+            </SectionLabel>
             <CitySearch
-              placeholder="Add a destination… (e.g. Tokyo, Paris, Lima)"
+              placeholder="Add a stop… big cities or small towns (e.g. Manchester, Worthing, Arundel)"
               exclude={[originId, ...destIds]}
-              onPick={(c) => { setDestIds([...destIds, c.id]); if (!nights[c.id]) setN(c.id, 2); }}
+              onPick={(c) => { setDestIds([...destIds, c.id]); if (!nights[c.id]) setN(c.id, c.custom ? 1 : 2); }}
             />
+            {!destIds.length && (
+              <div className="mt-4 rounded-xl p-4 flex items-start gap-3" style={{ background: T.railTint, border: `1px solid ${T.rail}22` }}>
+                <Info size={16} style={{ color: T.rail, marginTop: 2, flexShrink: 0 }} />
+                <p className="text-xs leading-relaxed">
+                  Pick a <b>primary destination</b> (here or on the brief step) and the builder will suggest
+                  major cities in and around that country. Smaller towns still get hotels, live prices, and
+                  points options.
+                </p>
+              </div>
+            )}
 
             <div className="grid sm:grid-cols-2 gap-3 mt-4">
               {destIds.map((cid) => {
@@ -362,35 +453,36 @@ export default function App() {
               })}
             </div>
 
-            {japanSuggestions.length > 0 && (
+            {suggestions.length > 0 && (
               <div className="mt-7">
                 <div className="flex items-center gap-2 mb-3">
                   <Sparkles size={15} style={{ color: T.gold }} />
                   <span className="text-xs font-bold tracking-widest uppercase" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
-                    Suggested additions near your route
+                    Suggested stops around {cityById[destIds[0]].name}
                   </span>
                 </div>
                 <div className="grid sm:grid-cols-2 gap-3">
-                  {japanSuggestions.map((cid) => {
-                    const c = cityById[cid];
-                    const m = SUGGEST_META[cid];
-                    return (
-                      <button
-                        key={cid}
-                        onClick={() => { setDestIds([...destIds, cid]); if (!nights[cid]) setN(cid, 1); }}
-                        className="text-left rounded-xl p-4"
-                        style={{ background: T.card, border: `1.5px solid ${T.mist}` }}
-                      >
-                        <div className="flex items-baseline gap-2">
-                          <span className="font-bold">{c.name}</span>
-                          <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.inkSoft, fontSize: 13 }}>{JP_NAMES[cid]}</span>
-                        </div>
-                        <p className="text-xs mt-1.5 leading-relaxed" style={{ color: T.inkSoft }}>{m.why}</p>
-                        <div className="mt-2"><Chip tint={T.pineTint} color={T.pine}>{m.add}</Chip></div>
-                      </button>
-                    );
-                  })}
+                  {suggestions.map(({ city: c, why, add }) => (
+                    <button
+                      key={c.id}
+                      onClick={() => { setDestIds([...destIds, c.id]); if (!nights[c.id]) setN(c.id, JP_NAMES[c.id] ? 1 : 2); }}
+                      className="text-left rounded-xl p-4"
+                      style={{ background: T.card, border: `1.5px solid ${T.mist}` }}
+                    >
+                      <div className="flex items-baseline gap-2">
+                        <span className="font-bold">{c.name}</span>
+                        <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.inkSoft, fontSize: 13 }}>
+                          {JP_NAMES[c.id] ?? c.country}
+                        </span>
+                      </div>
+                      <p className="text-xs mt-1.5 leading-relaxed" style={{ color: T.inkSoft }}>{why}</p>
+                      <div className="mt-2"><Chip tint={T.pineTint} color={T.pine}>{add}</Chip></div>
+                    </button>
+                  ))}
                 </div>
+                <p className="text-xs mt-3" style={{ color: T.inkSoft }}>
+                  Want somewhere smaller? Type any town in the search above — hotels and points options still price for it.
+                </p>
               </div>
             )}
 
@@ -408,6 +500,17 @@ export default function App() {
                 Optimize route <ChevronRight size={16} />
               </button>
             </div>
+          </div>
+        )}
+
+        {/* ── steps 2/3 need a destination ── */}
+        {(step === 2 || step === 3) && !route && (
+          <div className="rounded-xl p-8 text-center" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+            <p className="text-sm font-bold">No destinations yet</p>
+            <p className="text-xs mt-1" style={{ color: T.inkSoft }}>Pick a primary destination on the brief step and the builder takes it from there.</p>
+            <button onClick={() => setStep(0)} className="mt-4 py-2.5 px-5 rounded-xl font-bold text-sm text-white" style={{ background: T.ink }}>
+              Back to the brief
+            </button>
           </div>
         )}
 

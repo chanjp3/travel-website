@@ -13,6 +13,22 @@ export function hotelsFor(cityId) {
   if (pack?.hotels?.[cityId]?.length) return { hotels: pack.hotels[cityId], sample: false };
   const c = cityById[cityId];
   const ix = PRICE_INDEX[c.region] ?? 1;
+  // Geocoded towns: humble local samples — live search finds the real
+  // properties (and flags points brands) once connected.
+  if (c.custom) {
+    const base = Math.round(150 * ix);
+    return {
+      sample: true,
+      hotels: [
+        { name: `${c.name} boutique inn`, program: "cash", pid: null,
+          pts: null, cash: Math.round(base * 1.15), view: 8.2, quality: 8.4,
+          note: "Local independent — sample until live rates load" },
+        { name: `${c.name} guesthouse`, program: "cash", pid: null,
+          pts: null, cash: Math.round(base * 0.7), view: 7.6, quality: 8.0,
+          note: "Sample listing — live search finds real properties here" },
+      ],
+    };
+  }
   const base = Math.round(240 * ix);
   return {
     sample: true,

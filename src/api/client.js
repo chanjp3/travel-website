@@ -20,5 +20,25 @@ async function get(path, params) {
 export const searchLocations = (q) => get("/api/locations", { q });
 export const liveFlights = (from, to, date, cabin) =>
   get("/api/flights", { from, to, date, cabin: cabin === "Business" ? "BUSINESS" : "ECONOMY" });
-export const liveHotels = (cityCode, checkIn, checkOut) =>
-  get("/api/hotels", { cityCode, checkIn, checkOut });
+
+/** Hotels for a city object: geocode search for custom towns, city code otherwise. */
+export const liveHotels = (city, checkIn, checkOut) =>
+  city.custom
+    ? get("/api/hotels", { lat: city.lat, lon: city.lon, checkIn, checkOut })
+    : get("/api/hotels", { cityCode: city.cc ?? city.air, checkIn, checkOut });
+
+/**
+ * Town geocoder — Open-Meteo, free and keyless, called directly from the
+ * browser. Lets the builder accept any town on Earth (Worthing, Arundel…)
+ * even before the Amadeus worker is deployed. Fails soft to [].
+ */
+export async function geoSearch(q) {
+  try {
+    const res = await fetch(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=en&format=json`,
+      { signal: AbortSignal.timeout(6000) }
+    );
+    if (!res.ok) return [];
+    return (await res.json()).results ?? [];
+  } catch { return []; }
+}

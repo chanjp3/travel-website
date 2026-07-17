@@ -23,6 +23,15 @@ export function permutations(arr) {
 export function edgeFor(a, b) {
   const rail = railEdge(a, b);
   if (rail) return rail;
+  const d = km(cityById[a], cityById[b]);
+  // Short hops (a town near its anchor city) are ground legs, not flights.
+  if (d < 300) {
+    return {
+      mode: "rail", min: Math.round(35 + (d / 70) * 60),
+      usd: Math.round(6 + d * 0.18),
+      svc: "Regional rail / drive", via: null,
+    };
+  }
   const r = routing(a, b);
   return {
     mode: "flight", min: r.min + 130, // +130m airport overhead both ends

@@ -51,7 +51,19 @@ export function mergeLiveLeg(leg, offers, cabin) {
   return { ...leg, options, live: true, bestCash };
 }
 
-const BRANDS = ["hyatt", "conrad", "hilton", "marriott", "ritz", "westin", "sheraton"];
+/**
+ * Points-brand detector for live hotel names. When a live property belongs
+ * to a bookable program, attach the program and a typical award rate derived
+ * from its live cash price at the program's usual redemption value — so any
+ * town's Hilton/Marriott/Hyatt shows whether points can cover it, funded
+ * through the transfer-partner engine like everything else.
+ */
+const BRAND_PROGRAMS = [
+  { re: /hyatt/i, pid: "hyatt", program: "Hyatt", cpp: 0.017, block: 1000 },
+  { re: /hilton|conrad|waldorf|doubletree|curio|hampton|embassy suites/i, pid: "hilton", program: "Hilton", cpp: 0.005, block: 5000 },
+  { re: /marriott|courtyard|sheraton|westin|ritz|st\.? regis|aloft|moxy|autograph|renaissance|le m[eé]ridien/i, pid: "marriott", program: "Marriott", cpp: 0.008, block: 2500 },
+];
+const brandFor = (name) => BRAND_PROGRAMS.find((b) => b.re.test(name ?? ""));
 const titleCase = (s) =>
   (s ?? "").toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase()).replace(/\s+/g, " ").trim();
 
@@ -62,24 +74,35 @@ export function mergeLiveHotels(base, offers, nights) {
   if (!priced.length) return { ...base, live: false };
   const n = Math.max(nights, 1);
 
-  // Reprice curated rows when a live offer shares the brand keyword.
+  // Reprice curated rows when a live offer shares the points brand.
   const hotels = base.hotels.map((h) => {
-    const brand = BRANDS.find((b) => h.name.toLowerCase().includes(b));
-    const match = brand && priced.find((o) => o.name.toLowerCase().includes(brand));
+    const brand = brandFor(h.name);
+    const match = brand && priced.find((o) => brandFor(o.name)?.pid === brand.pid);
     return match ? { ...h, cash: Math.round(match.price / n), liveCash: true } : h;
   });
 
-  // Append the two cheapest live properties as bookable cash options.
+  // Append the cheapest live properties as bookable options; points brands
+  // get an award estimate so "can I use points here?" is always answered.
+  const covered = new Set(hotels.filter((h) => h.liveCash).map((h) => brandFor(h.name)?.pid));
   const named = new Set(hotels.map((h) => h.name.toLowerCase()));
   const extras = [...priced]
     .sort((a, b) => a.price - b.price)
     .filter((o) => !named.has(titleCase(o.name).toLowerCase()))
-    .slice(0, 2)
-    .map((o) => ({
-      name: titleCase(o.name), program: "cash", pid: null, pts: null,
-      cash: Math.round(o.price / n), view: null, quality: null,
-      note: "Live rate for your dates via Amadeus", live: true,
-    }));
+    .filter((o) => !covered.has(brandFor(o.name)?.pid) || !brandFor(o.name))
+    .slice(0, base.hotels.length <= 2 ? 3 : 2)
+    .map((o) => {
+      const nightly = Math.round(o.price / n);
+      const brand = brandFor(o.name);
+      const pts = brand ? Math.round(nightly / brand.cpp / brand.block) * brand.block : null;
+      return {
+        name: titleCase(o.name),
+        program: brand?.program ?? "cash", pid: brand?.pid ?? null,
+        pts, cash: nightly, view: null, quality: null, live: true,
+        note: brand
+          ? `Live rate via Amadeus · award estimate at typical ${brand.program} value`
+          : "Live rate for your dates via Amadeus",
+      };
+    });
 
   return { hotels: [...hotels, ...extras], sample: false, live: true };
 }
