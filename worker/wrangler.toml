@@ -12,9 +12,7 @@ compatibility_date = "2026-01-01"
 [vars]
 AMADEUS_BASE = "https://test.api.amadeus.com"
 
-# Trip sync storage (save codes). One-time setup in the Cloudflare dashboard:
-#   Storage & Databases → KV → Create namespace (any name) → copy its ID,
-#   then uncomment and fill in:
-# [[kv_namespaces]]
-# binding = "MERIDIAN_TRIPS"
-# id = "PASTE_NAMESPACE_ID_HERE"
+# Trip sync storage (save codes), 90-day TTL.
+[[kv_namespaces]]
+binding = "MERIDIAN_TRIPS"
+id = "d9073e2438ef43acaa900bea7458e756"
