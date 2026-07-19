@@ -4,14 +4,99 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── craft layer: depth, motion, texture ─────────────────────────────── */
+
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Paper texture: a whisper of hairline grid, like signage drafting stock. */
+body {
+  background-color: #fafaf8;
+  background-image:
+    linear-gradient(rgba(22, 24, 29, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(22, 24, 29, 0.022) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+::selection {
+  background: #0b5fb0;
+  color: #fff;
+}
+
+/* Cards: consistent soft elevation instead of flat 1px boxes. */
+.rounded-xl,
+.rounded-2xl {
+  box-shadow:
+    0 1px 2px rgba(22, 24, 29, 0.04),
+    0 10px 28px -18px rgba(22, 24, 29, 0.12);
+}
+span.rounded-xl,
+input.rounded-xl {
+  box-shadow: none;
+}
+
+/* Interactive cards & buttons: lift on hover, settle on press. */
+button {
+  transition:
+    transform 0.22s cubic-bezier(0.2, 0.7, 0.3, 1),
+    box-shadow 0.22s cubic-bezier(0.2, 0.7, 0.3, 1),
+    border-color 0.22s,
+    background-color 0.22s,
+    opacity 0.22s;
+}
+button.rounded-xl:hover:not(:disabled),
+button.rounded-2xl:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow:
+    0 2px 4px rgba(22, 24, 29, 0.05),
+    0 14px 34px -16px rgba(22, 24, 29, 0.2);
+}
+button:active:not(:disabled) {
+  transform: translateY(0) scale(0.995);
+}
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid #0b5fb0;
+  outline-offset: 2px;
+}
+
+/* Step transitions: content slides up as you move through the flow. */
+@keyframes step-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+.step-in {
+  animation: step-in 0.4s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+
+/* Live-data loading: quiet signal pulse. */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.pulse-dot::before {
+  content: "●";
+  display: inline-block;
+  margin-right: 6px;
+  animation: pulse-dot 1.1s ease-in-out infinite;
+}
+
 input[type="range"] {
   accent-color: #0b5fb0;
+}
+input[type="date"] {
+  color-scheme: light;
 }
 ::-webkit-scrollbar {
   height: 6px;
   width: 6px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #e6e7e2;
+  background: #d9dad4;
   border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #b9bab4;
 }

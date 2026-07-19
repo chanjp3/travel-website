@@ -92,6 +92,14 @@ function CitySearch({ placeholder, exclude = [], onPick, towns = true }) {
   );
 }
 
+const Mark = ({ size = 34 }) => (
+  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+    <circle cx="32" cy="32" r="30" fill={T.flight} />
+    <circle cx="32" cy="32" r="30" fill="none" stroke="rgba(22,24,29,.15)" strokeWidth="2" />
+    <text x="32" y="44" textAnchor="middle" fontSize="34" fontWeight="900" fill="#fff" fontFamily="'Zen Old Mincho', serif">旅</text>
+  </svg>
+);
+
 const SUGGEST_META = {
   hakone: { why: "On the Tokaido corridor between Tokyo and Kyoto — an onsen night costs almost no detour.", add: "+1h 10m · ≈$46 rail" },
   nara: { why: "45 min from Kyoto or Osaka — Todai-ji and the bowing deer.", add: "+1h 35m · ≈$10 rail" },
@@ -221,14 +229,20 @@ export default function App() {
 
   return (
     <div className="min-h-screen" style={{ background: T.paper, color: T.ink, fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
-      <header className="border-b" style={{ borderColor: T.mist, background: T.card }}>
-        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
-          <div>
-            <div className="flex items-baseline gap-2">
-              <h1 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: 24 }}>Trip Architect</h1>
-              <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.rail, fontSize: 16 }}>旅程設計</span>
+      <header
+        className="border-b sticky top-0 z-40"
+        style={{ borderColor: T.mist, background: "rgba(255,255,255,0.86)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }}
+      >
+        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Mark />
+            <div>
+              <div className="flex items-baseline gap-2">
+                <h1 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: 22, letterSpacing: "-0.01em" }}>Trip Architect</h1>
+                <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.rail, fontSize: 15 }}>旅程設計</span>
+              </div>
+              <p className="text-xs" style={{ color: T.inkSoft }}>Points-optimized trip planner · any origin, any destination</p>
             </div>
-            <p className="text-xs" style={{ color: T.inkSoft }}>Points-optimized trip planner · any origin, any destinations</p>
           </div>
           <Chip tint={liveMode() ? T.pineTint : T.flightTint} color={liveMode() ? T.pine : T.flight}>
             {liveMode() ? "LIVE FARES CONNECTED" : "ESTIMATE MODE"}
@@ -256,20 +270,26 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-6">
+      <main className="max-w-5xl mx-auto px-4 py-8">
+        <div key={step} className="step-in">
         {/* ── STEP 0 · BRIEF ── */}
         {step === 0 && (
           <div className="grid md:grid-cols-2 gap-6">
             <div>
               <SectionLabel>The brief</SectionLabel>
-              <h2 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 700, fontSize: 28, lineHeight: 1.25 }}>
-                Any trip,<br />built around your points.
+              <h2 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: "clamp(30px, 4.5vw, 42px)", lineHeight: 1.18, letterSpacing: "-0.01em" }}>
+                Any trip, built<br />around <span style={{ color: T.flight }}>your points.</span>
               </h2>
-              <p className="mt-3 text-sm leading-relaxed" style={{ color: T.inkSoft }}>
+              <p className="mt-3 text-sm leading-relaxed" style={{ color: T.inkSoft, maxWidth: "44ch" }}>
                 Pick an origin and destinations anywhere. The engine sequences the stops, routes flights
                 (with connections) and trains, funds awards through your card transfer partners, and
                 prices the whole trip.
               </p>
+              <div className="flex flex-wrap gap-x-5 gap-y-1 mt-4 text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
+                <span><b style={{ color: T.ink }}>40,320</b> orderings scored</span>
+                <span><b style={{ color: T.ink }}>12</b> loyalty programs</span>
+                <span><b style={{ color: T.ink }}>any town</b> on Earth</span>
+              </div>
 
               <div className="mt-5 rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
                 <div className="flex items-center gap-2 mb-2">
@@ -584,7 +604,7 @@ export default function App() {
                   <div key={key}>
                     <SectionLabel>{dir}</SectionLabel>
                     {loading && (
-                      <p className="text-xs mb-2" style={{ color: T.flight }}>Fetching live fares for your dates…</p>
+                      <p className="text-xs mb-2 pulse-dot" style={{ color: T.flight }}>Fetching live fares for your dates…</p>
                     )}
                     {leg.live && (
                       <p className="text-xs mb-2" style={{ color: T.pine }}>
@@ -884,7 +904,22 @@ export default function App() {
             </div>
           </div>
         )}
+        </div>
       </main>
+
+      <footer className="border-t mt-8" style={{ borderColor: T.mist, background: T.card }}>
+        <div className="max-w-5xl mx-auto px-4 py-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <div className="flex items-center gap-2.5">
+            <Mark size={24} />
+            <span style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: 15 }}>Trip Architect</span>
+            <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.rail, fontSize: 13 }}>旅程設計</span>
+          </div>
+          <p className="text-xs" style={{ color: T.inkSoft, maxWidth: "58ch" }}>
+            Fares and hotel rates refresh live for your dates; award space is verified where marked.
+            Always confirm availability before transferring points — transfers are one-way.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }
