@@ -59,15 +59,15 @@ export default function App() {
   const [originAir, setOriginAir] = useState(null);  // departure airport from the intake
   const [homeAir, setHomeAir] = useState(null);      // fly-home airport from the intake
   const [startAt, setStartAt] = useState(null);      // landing city — the trip starts here
-  const [inGwIata, setInGwIata] = useState(null);    // chosen arrival airport
-  const [outGwIata, setOutGwIata] = useState(null);  // chosen return-departure airport
+  const [inGw, setInGw] = useState(null);   // chosen arrival airport {iata, lat, lon}
+  const [outGw, setOutGw] = useState(null);  // chosen return-departure airport
 
   const origin = cityById[originId];
   const depAir = originAir ?? origin.air;
   const retAir = homeAir ?? origin.air;
   const results = useMemo(
-    () => (destIds.length >= 1 ? scoreRoutes(destIds, wCost, originId, { endAt, startAt, inGwIata, outGwIata }) : null),
-    [destIds, wCost, originId, endAt, startAt, inGwIata, outGwIata]
+    () => (destIds.length >= 1 ? scoreRoutes(destIds, wCost, originId, { endAt, startAt, inGw, outGw }) : null),
+    [destIds, wCost, originId, endAt, startAt, inGw, outGw]
   );
   const route = results?.top[Math.min(routeIdx, (results?.top.length ?? 1) - 1)];
 
@@ -199,8 +199,8 @@ export default function App() {
     // from the end city's chosen airport.
     const startIdx = t.stops.findIndex((st) => st.name === t.arrivalCity?.name);
     setStartAt(startIdx >= 0 ? ids[startIdx] : null);
-    setInGwIata(t.arrivalAirport?.iata ?? null);
-    setOutGwIata(t.endAirport?.iata ?? null);
+    setInGw(t.arrivalAirport ? { iata: t.arrivalAirport.iata, lat: t.arrivalAirport.lat, lon: t.arrivalAirport.lon } : null);
+    setOutGw(t.endAirport ? { iata: t.endAirport.iata, lat: t.endAirport.lat, lon: t.endAirport.lon } : null);
     setRouteIdx(0); setFlightSel({}); setHotelPicks({}); setHotelPay({});
     setStep(1);
   };
@@ -254,9 +254,8 @@ export default function App() {
         </div>
       </header>
 
-      {step === 0 ? (
-        <MeridianIntake initialDate={departDate} onComplete={handlePlottedTrip} />
-      ) : (
+      <MeridianIntake hidden={step !== 0} initialDate={departDate} onComplete={handlePlottedTrip} />
+      {step > 0 && (
       <main className="max-w-5xl mx-auto px-4 py-8">
         <div key={step} className="step-in">
         {/* ── steps 2/3 need a destination ── */}

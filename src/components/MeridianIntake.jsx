@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { mountMeridian } from "../atlas/meridianIntake.js";
 
 /** React shell around the d3-driven Meridian map intake. */
-export function MeridianIntake({ initialDate, onComplete }) {
+export function MeridianIntake({ initialDate, onComplete, hidden = false }) {
   const holder = useRef(null);
   const cb = useRef(onComplete);
   cb.current = onComplete;
@@ -14,5 +14,5 @@ export function MeridianIntake({ initialDate, onComplete }) {
     });
   }, []);
 
-  return <div ref={holder} className="meridian" />;
+  return <div ref={holder} className="meridian" style={{ display: hidden ? "none" : undefined }} />;
 }

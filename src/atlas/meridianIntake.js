@@ -700,7 +700,7 @@ function stepSummary(){
         destCountry: nameOf(trip.dest.country),
         arrivalCity: { name: trip.dest.gwCity.city, lat: trip.dest.gwCity.lat, lon: trip.dest.gwCity.lon },
         arrivalAirport: { iata: trip.dest.airport.iata, name: trip.dest.airport.name, lat: trip.dest.airport.lat, lon: trip.dest.airport.lon },
-        endAirport: trip.endAirport ? { iata: trip.endAirport.iata, name: trip.endAirport.name } : null,
+        endAirport: trip.endAirport ? { iata: trip.endAirport.iata, name: trip.endAirport.name, lat: trip.endAirport.lat, lon: trip.endAirport.lon } : null,
         stops: trip.stops.map(s=>({ name: s.city, lat: s.lat, lon: s.lon, nights: s.nights, iata: s.airports?.[0]?.iata ?? null })),
         endCity: trip.endCity.city,
         homeAirport: { iata: trip.home.iata, name: trip.home.name, city: trip.home.city, lat: trip.home.lat, lon: trip.home.lon },
