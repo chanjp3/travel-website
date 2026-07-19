@@ -6,24 +6,24 @@
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 export const liveMode = () => !!BASE;
 
-async function get(path, params) {
+async function get(path, params, timeoutMs = 12000) {
   if (!BASE) return null;
   const url = new URL(BASE + path);
   Object.entries(params).forEach(([k, v]) => v != null && url.searchParams.set(k, v));
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
 }
 
 /** Like get(), but reports WHY a call failed instead of a silent null. */
-async function getDetailed(path, params) {
+async function getDetailed(path, params, timeoutMs = 12000) {
   if (!BASE) return { data: null, error: "not-configured" };
   const url = new URL(BASE + path);
   Object.entries(params).forEach(([k, v]) => v != null && url.searchParams.set(k, v));
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
       try {
@@ -36,14 +36,14 @@ async function getDetailed(path, params) {
   } catch (e) {
     return {
       data: null,
-      error: e?.name === "TimeoutError" || e?.name === "AbortError" ? "timed out after 12s" : "network error — worker unreachable",
+      error: e?.name === "TimeoutError" || e?.name === "AbortError" ? `timed out after ${Math.round(timeoutMs/1000)}s` : "network error — worker unreachable",
     };
   }
 }
 
 /** Hotels with failure detail — the city tour shows the real reason. */
 export const liveHotelsDetailed = (city, checkIn, checkOut) =>
-  getDetailed("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, cityCode: city.custom ? null : city.cc ?? city.air, checkIn, checkOut });
+  getDetailed("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, cityCode: city.custom ? null : city.cc ?? city.air, checkIn, checkOut }, 20000);
 
 export const searchLocations = (q) => get("/api/locations", { q });
 export const liveFlights = (from, to, date, cabin) =>
@@ -55,7 +55,7 @@ export const liveAwards = (from, to, date) => get("/api/awards", { from, to, dat
 /** Hotels for a city object. Name drives Hotellook lookup (works for any
  *  town); code/geocode serve the Amadeus branch when that's configured. */
 export const liveHotels = (city, checkIn, checkOut) =>
-  get("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, cityCode: city.custom ? null : city.cc ?? city.air, checkIn, checkOut });
+  get("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, cityCode: city.custom ? null : city.cc ?? city.air, checkIn, checkOut }, 20000);
 
 /**
  * Reverse geocoder — Nominatim (OSM), keyless, browser-side, low volume.
