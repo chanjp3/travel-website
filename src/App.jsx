@@ -22,13 +22,13 @@ import { defaultDepart, buildSchedule, toISO, fmtDay, fmtShort, dateForDay } fro
 import { Chip, SectionLabel, NightsStepper, PayToggle } from "./components/ui.jsx";
 import { RouteSpine } from "./components/RouteSpine.jsx";
 import { JourneyMap } from "./components/JourneyMap.jsx";
-import { MapWizard } from "./components/MapWizard.jsx";
+import { MeridianIntake } from "./components/MeridianIntake.jsx";
 
 const Mark = ({ size = 34 }) => (
-  <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-    <circle cx="32" cy="32" r="30" fill={T.flight} />
-    <circle cx="32" cy="32" r="30" fill="none" stroke="rgba(22,24,29,.15)" strokeWidth="2" />
-    <text x="32" y="44" textAnchor="middle" fontSize="34" fontWeight="900" fill="#fff" fontFamily="'Zen Old Mincho', serif">旅</text>
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="12" fill={T.ink} />
+    <path transform="translate(4.8,4.8) scale(0.6)" fill={T.paper}
+      d="M21.5 15.5l-8-4.7V4.2c0-.9-.7-1.7-1.5-1.7s-1.5.8-1.5 1.7v6.6l-8 4.7v2l8-2.5v5.4l-2 1.6v1.5l3.5-1 3.5 1V22l-2-1.6V15l8 2.5v-2z" />
   </svg>
 );
 
@@ -56,8 +56,12 @@ export default function App() {
   const [hotelPay, setHotelPay] = useState({});
   const [endAt, setEndAt] = useState(null);       // "where do you want to end?" pin
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [originAir, setOriginAir] = useState(null);  // departure airport from the intake
+  const [homeAir, setHomeAir] = useState(null);      // fly-home airport from the intake
 
   const origin = cityById[originId];
+  const depAir = originAir ?? origin.air;
+  const retAir = homeAir ?? origin.air;
   const results = useMemo(
     () => (destIds.length >= 1 ? scoreRoutes(destIds, wCost, originId, { endAt }) : null),
     [destIds, wCost, originId, endAt]
@@ -76,10 +80,10 @@ export default function App() {
     [route, nights, departDate, outLegEst]
   );
 
-  const liveOut = useLiveLeg(origin.air, route?.inGw.gw, departDate, cabinPref);
-  const liveBack = useLiveLeg(route?.outGw.gw, origin.air, schedule?.returnDate, cabinPref);
-  const awardsOut = useLiveAwards(origin.air, route?.inGw.gw, departDate);
-  const awardsBack = useLiveAwards(route?.outGw.gw, origin.air, schedule?.returnDate);
+  const liveOut = useLiveLeg(depAir, route?.inGw.gw, departDate, cabinPref);
+  const liveBack = useLiveLeg(route?.outGw.gw, retAir, schedule?.returnDate, cabinPref);
+  const awardsOut = useLiveAwards(depAir, route?.inGw.gw, departDate);
+  const awardsBack = useLiveAwards(route?.outGw.gw, retAir, schedule?.returnDate);
   const outLeg = useMemo(
     () => mergeLiveAwards(mergeLiveLeg(outLegEst, liveOut.offers, cabinPref), awardsOut.rows),
     [outLegEst, liveOut.offers, cabinPref, awardsOut.rows]
@@ -130,8 +134,8 @@ export default function App() {
     if (!route || !fOut || !fBack) return null;
     return buildLedger({
       flights: [
-        { label: `${origin.air} → ${route.inGw.gw}`, f: fOut, mode: pointsOnly || flightPay.out === "points" ? "points" : "cash", path: pathOut },
-        { label: `${route.outGw.gw} → ${origin.air}`, f: fBack, mode: pointsOnly || flightPay.back === "points" ? "points" : "cash", path: pathBack },
+        { label: `${depAir} → ${route.inGw.gw}`, f: fOut, mode: pointsOnly || flightPay.out === "points" ? "points" : "cash", path: pathOut },
+        { label: `${route.outGw.gw} → ${retAir}`, f: fBack, mode: pointsOnly || flightPay.back === "points" ? "points" : "cash", path: pathBack },
       ],
       hotels: hotelChoices, route, jr,
     });
@@ -161,21 +165,48 @@ export default function App() {
   const steps = ["The map", "Route & flights", "Itinerary & cost"];
   const setN = (cid, n) => setNights({ ...nights, [cid]: n });
 
+  // The Meridian intake hands us a plotted trip; register its places (any
+  // town on Earth) and let the engines take over.
+  const cityFromPlace = (rawName, countryName, lat, lon, iata) => {
+    const name = rawName.replace(/\s*\(.+\)$/, ""); // "Tokyo (13)" → "Tokyo" (atlas region suffix)
+    const cur = searchCities(name).find((c) => Math.abs(c.lat - lat) < 1.4 && Math.abs(c.lon - lon) < 1.4);
+    const city = cur ?? registerCity(makeCustomCity({ name, country: countryName, latitude: lat, longitude: lon }));
+    if (iata && city.custom) city.air = iata; // real airport beats nearest-curated guess
+    return city;
+  };
+  const handlePlottedTrip = (t) => {
+    const o = cityFromPlace(t.originCity.name, t.originCountry, t.originCity.lat, t.originCity.lon, t.originAirport.iata);
+    setOriginId(o.id);
+    setOriginAir(t.originAirport.iata);
+    setHomeAir(t.homeAirport.iata);
+    if (t.date) setDepartDate(t.date);
+    const ids = [];
+    const nn = {};
+    t.stops.forEach((st) => {
+      const c = cityFromPlace(st.name, t.destCountry, st.lat, st.lon, st.iata);
+      ids.push(c.id);
+      nn[c.id] = st.nights;
+    });
+    setDestIds(ids);
+    setNights((old) => ({ ...old, ...nn }));
+    const endIdx = t.stops.findIndex((st) => st.name === t.endCity);
+    setEndAt(ids[endIdx >= 0 ? endIdx : ids.length - 1] ?? null);
+    setRouteIdx(0); setFlightSel({}); setHotelPicks({}); setHotelPay({});
+    setStep(1);
+  };
+
   return (
-    <div className="min-h-screen" style={{ background: T.paper, color: T.ink, fontFamily: "'IBM Plex Sans', system-ui, sans-serif" }}>
+    <div className="min-h-screen" style={{ background: T.paper, color: T.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
       <header
         className="border-b sticky top-0 z-40"
-        style={{ borderColor: T.mist, background: "rgba(255,255,255,0.86)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }}
+        style={{ borderColor: T.mist, background: "rgba(253,251,245,0.88)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }}
       >
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Mark />
             <div>
-              <div className="flex items-baseline gap-2">
-                <h1 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: 22, letterSpacing: "-0.01em" }}>Trip Architect</h1>
-                <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.rail, fontSize: 15 }}>旅程設計</span>
-              </div>
-              <p className="text-xs" style={{ color: T.inkSoft }}>Points-optimized trip planner · any origin, any destination</p>
+              <h1 style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 700, fontSize: 19, letterSpacing: "0.28em", textTransform: "uppercase" }}>Meridian</h1>
+              <p className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>Points-first route planning</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -214,15 +245,7 @@ export default function App() {
       </header>
 
       {step === 0 ? (
-        <MapWizard
-          originId={originId} setOriginId={setOriginId}
-          departDate={departDate} setDepartDate={setDepartDate}
-          destIds={destIds} setDestIds={setDestIds}
-          nights={nights} setN={setN}
-          endAt={endAt} setEndAt={setEndAt}
-          suggestions={suggestions} route={route} schedule={schedule}
-          onDone={() => { setRouteIdx(0); setFlightSel({}); setStep(1); }}
-        />
+        <MeridianIntake initialDate={departDate} onComplete={handlePlottedTrip} />
       ) : (
       <main className="max-w-5xl mx-auto px-4 py-8">
         <div key={step} className="step-in">
@@ -283,8 +306,8 @@ export default function App() {
             {/* Long-haul flights with funding paths */}
             <div className="grid md:grid-cols-2 gap-5">
               {[
-                { key: "out", dir: `Outbound · ${origin.air} → ${route.inGw.gw} · ${fmtDay(departDate)}`, leg: outLeg, sel: outId, loading: liveOut.loading },
-                { key: "back", dir: `Return · ${route.outGw.gw} → ${origin.air}${schedule ? ` · ${fmtDay(schedule.returnDate)}` : ""}`, leg: backLeg, sel: backId, loading: liveBack.loading },
+                { key: "out", dir: `Outbound · ${depAir} → ${route.inGw.gw} · ${fmtDay(departDate)}`, leg: outLeg, sel: outId, loading: liveOut.loading },
+                { key: "back", dir: `Return · ${route.outGw.gw} → ${retAir}${schedule ? ` · ${fmtDay(schedule.returnDate)}` : ""}`, leg: backLeg, sel: backId, loading: liveBack.loading },
               ].map(({ key, dir, leg, sel, loading }) => {
                 const visible = leg.options.filter((f) => {
                   if (f.cabin !== cabinPref && !f.cashOnly) return false;
@@ -407,7 +430,7 @@ export default function App() {
           <div className="space-y-8">
             <div className="rounded-2xl p-5 text-white" style={{ background: T.ink }}>
               <div className="flex items-baseline justify-between flex-wrap gap-2">
-                <h2 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 700, fontSize: 22 }}>
+                <h2 style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 700, fontSize: 22 }}>
                   {days.length} days · {origin.name} → {route.order.map((c) => cityById[c].name).join(" → ")}
                 </h2>
                 <span className="text-xs opacity-70" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
@@ -558,7 +581,7 @@ export default function App() {
                   <div key={d.day} className="rounded-xl p-4 flex gap-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
                     <div className="flex flex-col items-center" style={{ minWidth: 52 }}>
                       <span className="text-xs font-bold uppercase tracking-wide" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>Day</span>
-                      <span style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: 26, lineHeight: 1 }}>{d.day}</span>
+                      <span style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 900, fontSize: 26, lineHeight: 1 }}>{d.day}</span>
                       {schedule && (
                         <span className="text-xs mt-1 whitespace-nowrap" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
                           {fmtShort(dateForDay(schedule, d.day))}
@@ -566,7 +589,7 @@ export default function App() {
                       )}
                     </div>
                     <div className="flex-1">
-                      <div className="font-bold text-sm mb-2" style={{ fontFamily: "'Zen Old Mincho', serif", fontSize: 15 }}>{d.title}</div>
+                      <div className="font-bold text-sm mb-2" style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontSize: 15 }}>{d.title}</div>
                       <div className="space-y-1.5">
                         {d.items.map((it, i) => (
                           <div key={i} className="flex items-start gap-2 text-sm">
@@ -605,8 +628,7 @@ export default function App() {
         <div className="max-w-5xl mx-auto px-4 py-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="flex items-center gap-2.5">
             <Mark size={24} />
-            <span style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: 15 }}>Trip Architect</span>
-            <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.rail, fontSize: 13 }}>旅程設計</span>
+            <span style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 700, fontSize: 14, letterSpacing: "0.24em", textTransform: "uppercase" }}>Meridian</span>
           </div>
           <p className="text-xs" style={{ color: T.inkSoft, maxWidth: "58ch" }}>
             Fares and hotel rates refresh live for your dates; award space is verified where marked.
@@ -625,7 +647,7 @@ export default function App() {
             style={{ background: T.paper, boxShadow: "-16px 0 48px rgba(22,24,29,.25)" }}
           >
             <div className="flex items-center justify-between">
-              <h2 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: 20 }}>Points & preferences</h2>
+              <h2 style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 900, fontSize: 20 }}>Points & preferences</h2>
               <button onClick={() => setPrefsOpen(false)} style={{ color: T.inkSoft }}><X size={18} /></button>
             </div>
 
