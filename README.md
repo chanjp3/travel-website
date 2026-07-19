@@ -31,10 +31,11 @@ Requires Node 18+.
 | Day-by-day itinerary assembly | ✅ Functional — `src/lib/trip.js` |
 | Transfer partners, ratios, funding paths | ✅ Real static data — `src/data/transferPartners.js` |
 | Trip cost ledger & points accounting | ✅ Functional — `src/lib/costs.js` |
-| Hotel shortlists + view/quality scores | ⚠️ Static seed data — `src/data/hotels.js` |
-| Transpacific cash + award flight options | ⚠️ **Sample data** — `src/data/flights.js` |
-
-The two stubbed layers are deliberately isolated behind stable data shapes so the UI needs no changes when live feeds are wired in.
+| Trip calendar (departure date → per-city stay dates) | ✅ Functional — `src/lib/dates.js` |
+| Cash flight itineraries & prices | ✅ **Live market fares** (Travelpayouts/Aviasales; Amadeus Enterprise branch kept) when connected; distance-model estimates otherwise |
+| Hotel rates for your dates | ✅ **Live via Hotellook** (or Amadeus Enterprise) when connected; curated/sample listings otherwise |
+| Point values (¢/pt) | ✅ Computed against live cash fares when connected |
+| Award prices & availability | ✅ **Live via Seats.aero** when `SEATSAERO_KEY` set (verified space + real mileage prices); chart estimates otherwise |
 
 ## Architecture
 
@@ -45,7 +46,7 @@ src/
 ├── data/
 │   ├── cities.js           # city dataset + optimizer-aware suggestions
 │   ├── rail.js             # rail edges, gateways, airport access matrix
-│   ├── flights.js          # ← SWAP POINT for Amadeus (cash) + Seats.aero (award)
+│   ├── flights.js          # ← SWAP POINT for live cash fares + Seats.aero (award)
 │   ├── hotels.js           # ← SWAP POINT for hotel APIs + Places scoring
 │   └── attractions.js      # attraction pool with visit durations
 ├── lib/
@@ -61,14 +62,64 @@ src/
 
 With ≤8 stops the permutation space is tiny (8! = 40,320), so every ordering is enumerated. For each ordering, the best entry and exit gateway (HND/KIX) is chosen from a door-to-door access matrix, then the route is scored on a user-weighted blend of total ground cost and total ground time. Mirror routes (the same trip run backwards) are de-duplicated. The transpacific legs are near-constant across orderings, so gateway *access* is what drives open-jaw wins — e.g. HND-in / KIX-out for Tokyo → Kyoto → Osaka.
 
+## Going live (dates, real fares, live hotel rates)
+
+The app now carries real travel dates end-to-end: pick a departure date on the
+brief step and per-city check-in/check-out dates, the return-flight date, and
+the day-by-day calendar are all derived from your nights. In live mode those
+exact dates drive live fare and hotel searches; live itineraries (real
+carriers, connections, times, prices) replace the distance-model estimates,
+and ¢/pt point values are computed against the live cash fares.
+
+> **Provider note (July 2026):** Amadeus decommissioned its free Self-Service
+> API portal on 2026-07-17 — those keys no longer exist for new users. The
+> worker's default live provider is now **Travelpayouts** (free token):
+> Aviasales cached market fares for flights and Hotellook for hotel prices.
+> The Amadeus branch remains for Enterprise API Portal customers, and
+> **Duffel** is the upgrade path if you later need bookable live inventory.
+
+Two steps to switch it on:
+
+1. **Deploy the proxy worker** (keeps all credentials server-side):
+   ```bash
+   # free token: https://www.travelpayouts.com → sign up → Tools → API token
+   cd worker
+   npx wrangler deploy
+   npx wrangler secret put TRAVELPAYOUTS_TOKEN   # flights + hotels (free)
+   npx wrangler secret put SEATSAERO_KEY         # live award space (Partner API)
+   # optional, Enterprise customers only:
+   #   npx wrangler secret put AMADEUS_KEY && npx wrangler secret put AMADEUS_SECRET
+   ```
+2. **Point the frontend at the worker**: in Cloudflare Pages → Settings →
+   Environment variables, set `VITE_API_BASE` to the deployed worker URL
+   (e.g. `https://trip-architect-api.<account>.workers.dev`) and redeploy.
+   The header badge flips to **LIVE FARES CONNECTED**.
+
+Travelpayouts caveats: fares are cached economy market prices from real
+Aviasales searches (great for planning, not a booking guarantee), and hotel
+prices are Hotellook stay averages. Business-cabin cash rows therefore stay
+distance-model estimates — but business *awards* are fully live via
+Seats.aero, which is what the points math actually needs.
+
+Everything fails soft: if the worker is unreachable or a search returns
+nothing for a date, the estimate engines keep the app fully functional.
+
+**Award space:** with `SEATSAERO_KEY` set, `/api/awards` checks Seats.aero's
+cached availability for the exact route and date. Rows marked **LIVE AWARD**
+are verified bookable space at real mileage prices (with remaining-seat
+counts); programs Seats.aero tracked but found empty are flagged “no space
+this date”; anything else falls back to published-chart estimates
+(`src/data/awardCharts.js`). Seats.aero sources map to the funding engine's
+programs (Virgin Atlantic, Aeroplan, United, Delta, Alaska). Note commercial
+use of the Partner API requires a written agreement (support@seats.aero).
+Rail fares/times are encoded from published schedules.
+
 ## Roadmap (see `docs/mvp-plan.md` for the full plan)
 
-1. **Live cash fares** — Amadeus Self-Service Flight Offers (free sandbox). Add `VITE_AMADEUS_KEY` / `VITE_AMADEUS_SECRET` to `.env`; calls should go through a small server/worker proxy, not the browser.
-2. **Live award availability** — Seats.aero Partner API. Commercial use requires a written agreement (support@seats.aero) — engage before building against it.
-3. **Hotel data** — Amadeus hotel search + Google Places signals feeding the view/quality scoring model.
-4. **Real map layer** — replace the SVG diagram with MapLibre GL.
-5. **PDF export & shareable links** — serialize trip state to URL; render the itinerary to PDF.
-6. **Backend** — a thin API layer (Cloudflare Workers fits the existing infra) for caching fare/award lookups; caching is essential for both cost and speed.
+1. **Hotel scoring** — Google Places signals feeding the view/quality model for live properties.
+3. **Real map layer** — replace the SVG diagram with MapLibre GL.
+4. **PDF export & shareable links** — serialize trip state to URL; render the itinerary to PDF.
+5. **Edge caching** — cache fare/award lookups in the worker (KV) for cost and speed.
 
 ## Deploying
 
