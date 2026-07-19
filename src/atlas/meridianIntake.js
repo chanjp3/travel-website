@@ -11,7 +11,9 @@ import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
-import { geoSearch } from "../api/client.js";
+import { geoSearch, liveHotels } from "../api/client.js";
+import { searchCities } from "../data/world.js";
+import { attractionsFor } from "../lib/trip.js";
 import "./meridian.css";
 
 const SCAFFOLD = `
@@ -281,7 +283,7 @@ const trip = {
   dest:{country:null,gwCity:null,airport:null},
   nights:0,
   stops:[],           // {city,lat,lon,nights,airports}
-  endCity:null, endAirport:null,
+  endCity:null, endAirport:null, hotelPicks:{},
   home:null,          // airport flying back to
   legModes:[]
 };
@@ -537,7 +539,7 @@ function stepItinerary(){
       else trip.stops.splice(i,1);
       refresh();
     });
-    $('#go').onclick=()=>{ if(d3.sum(trip.stops,s=>s.nights)!==trip.nights)return; hideCard(); stepEndCity(); };
+    $('#go').onclick=()=>{ if(d3.sum(trip.stops,s=>s.nights)!==trip.nights)return; hideCard(); stepCityTour(0); };
     $('#bk').onclick=()=>{ clearDots(); gMarkers.selectAll('.stopbadge').remove(); stepNights(); };
     // free-text search: every airport city in the country, plus geocoded towns
     const inp=$('#inStop'), sg=$('#sgStop');
@@ -577,6 +579,74 @@ function stepItinerary(){
     refresh();
   };
   refresh();
+}
+
+/* ---- 6b. city guide tour: hotels on the map + main attractions ---- */
+function addDaysISO(iso,n){ const d=new Date(iso+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+function attractionListFor(name){
+  const clean=name.replace(/\s*\(.+\)$/,'');
+  const cur=searchCities(clean)[0];
+  const pool=cur ? attractionsFor(cur.id) : [
+    {n:`${clean} old town & landmarks walk`},{n:'Local market & food crawl'},
+    {n:`${clean} viewpoint at sunset`},{n:'Top museum or gallery'},{n:'Neighborhood dinner, local pick'}];
+  return pool.map(a=>a.n);
+}
+function drawHotelPins(hotels,nights){
+  gMarkers.selectAll('g.hotelpin').remove();
+  const data=hotels.filter(h=>h.lat!=null&&h.lon!=null);
+  data.forEach(d=>d._p=proj([d.lon,d.lat]));
+  const g=gMarkers.selectAll('g.hotelpin').data(data).join('g').attr('class','pos hotelpin');
+  g.append('circle').attr('r',6.5);
+  g.append('text').text(d=>'$'+Math.round(d.price/Math.max(nights,1))).attr('x',10).attr('y',4);
+  place();
+}
+let tourSeq=0;
+function stepCityTour(i){
+  if(i>=trip.stops.length||i<0){ gMarkers.selectAll('.hotelpin').remove(); return stepEndCity(); }
+  const seq=++tourSeq;
+  const s=trip.stops[i];
+  ticket(null,null,'stops');
+  clearDots(); gMarkers.selectAll('.stopbadge,.hotelpin').remove(); gArcs.selectAll('*').remove();
+  zoomToPoint([s.lon,s.lat], 40);
+  let lead=1; for(let j=0;j<i;j++) lead+=trip.stops[j].nights;
+  const ci=addDaysISO(trip.date,lead), co=addDaysISO(trip.date,lead+s.nights);
+  const attractions=attractionListFor(s.city);
+  const render=(hotels,loading)=>{
+    showCard(`
+      <div class="eyebrow">City guide · ${i+1} of ${trip.stops.length}</div>
+      <div class="question">${s.city}</div>
+      <div class="hint">${s.nights} night${s.nights>1?'s':''} · ${fmtDate(ci)} → ${fmtDate(co)}</div>
+      ${loading?'<div class="hint" style="color:var(--route)">Finding live hotel rates…</div>':''}
+      ${hotels&&hotels.length?`<label class="minihead">Where you could stay — pins on the map, tap to prefer</label>
+        <div class="optlist" style="max-height:150px">${hotels.map((h,j)=>`
+          <div class="opt${trip.hotelPicks[s.city]===h.name?' sel':''}" data-h="${j}">
+            <span class="iata">$${Math.round(h.price/Math.max(s.nights,1))}</span>
+            <span class="nm">${h.name}${h.stars?`<div class="sub" style="color:var(--gold)">${'★'.repeat(Math.min(h.stars,5))}</div>`:''}</span>
+          </div>`).join('')}</div>`
+        :(!loading?'<div class="hint">Live hotel rates appear here once the worker is connected — curated picks await on the itinerary desk.</div>':'')}
+      ${attractions.length?`<label class="minihead">Don't miss</label>
+        <div class="attrlist">${attractions.slice(0,5).map(a=>`<div>· ${a}</div>`).join('')}</div>`:''}
+      <div class="row" style="margin-top:12px">
+        <button class="btn red" id="nx">${i+1<trip.stops.length?'Next city →':'Continue →'}</button>
+        <button class="btn ghost sm" id="bk">Back</button>
+        <button class="btn ghost sm" id="skip">Skip tour</button>
+      </div>`);
+    qcard.querySelectorAll('[data-h]').forEach(o=>o.onclick=()=>{
+      const h=hotels[+o.dataset.h];
+      trip.hotelPicks[s.city]=trip.hotelPicks[s.city]===h.name?undefined:h.name;
+      render(hotels,false);
+    });
+    $('#nx').onclick=()=>stepCityTour(i+1);
+    $('#bk').onclick=()=>{ if(i===0){ gMarkers.selectAll('.hotelpin').remove(); clearDots(); zoomToFeature(trip.dest.country).then(()=>stepItinerary()); } else stepCityTour(i-1); };
+    $('#skip').onclick=()=>stepCityTour(trip.stops.length);
+  };
+  render(null,true);
+  liveHotels({ custom:true, name:s.city.replace(/\s*\(.+\)$/,''), lat:s.lat, lon:s.lon }, ci, co).then(list=>{
+    if(seq!==tourSeq) return;
+    const hotels=(list??[]).filter(h=>h.price&&h.name).sort((a,b)=>a.price-b.price).slice(0,6);
+    render(hotels,false);
+    drawHotelPins(hotels,s.nights);
+  });
 }
 
 /* ---- 7. end city (fly home from) ---- */
@@ -701,6 +771,7 @@ function stepSummary(){
         arrivalCity: { name: trip.dest.gwCity.city, lat: trip.dest.gwCity.lat, lon: trip.dest.gwCity.lon },
         arrivalAirport: { iata: trip.dest.airport.iata, name: trip.dest.airport.name, lat: trip.dest.airport.lat, lon: trip.dest.airport.lon },
         endAirport: trip.endAirport ? { iata: trip.endAirport.iata, name: trip.endAirport.name, lat: trip.endAirport.lat, lon: trip.endAirport.lon } : null,
+        hotelPicks: Object.fromEntries(Object.entries(trip.hotelPicks).filter(([, v]) => v)),
         stops: trip.stops.map(s=>({ name: s.city, lat: s.lat, lon: s.lon, nights: s.nights, iata: s.airports?.[0]?.iata ?? null })),
         endCity: trip.endCity.city,
         homeAirport: { iata: trip.home.iata, name: trip.home.name, city: trip.home.city, lat: trip.home.lat, lon: trip.home.lon },
@@ -709,7 +780,7 @@ function stepSummary(){
     $('#editBtn').onclick=()=>{ hideCard(); gArcs.selectAll('*').remove();
       gMarkers.selectAll('.homebadge').remove(); zoomToFeature(trip.dest.country).then(()=>stepItinerary()); };
     $('#restartBtn').onclick=()=>{ hideCard();
-      Object.assign(trip,{date:null,origin:{country:null,city:null,airport:null},dest:{country:null,gwCity:null,airport:null},nights:0,stops:[],endCity:null,endAirport:null,home:null,legModes:[]});
+      Object.assign(trip,{date:null,origin:{country:null,city:null,airport:null},dest:{country:null,gwCity:null,airport:null},nights:0,stops:[],endCity:null,endAirport:null,hotelPicks:{},home:null,legModes:[]});
       container.querySelectorAll('.tseg').forEach(s=>s.classList.remove('done'));
       ['from','date','to','nights','stops','return'].forEach(k=>{ const el=$('#t-'+k); if(el) el.textContent='———'; });
       stepOriginCountry(); };

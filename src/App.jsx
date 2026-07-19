@@ -111,6 +111,16 @@ export default function App() {
     }
     return pool[0]?.id ?? leg.options[0]?.id ?? null;
   };
+  // Hotel preferences: minimum stars, minimum quality rating, nightly budget.
+  const [hotelPrefs, setHotelPrefs] = useState({ stars: 0, rating: 0, budget: 0 });
+  const starsOf = (h) => h.stars ?? (h.quality >= 9 ? 5 : h.quality >= 8.3 ? 4 : h.quality != null ? 3 : null);
+  const hotelPasses = (h) => {
+    if (hotelPrefs.stars && (starsOf(h) ?? 0) < hotelPrefs.stars) return false;
+    if (hotelPrefs.rating && h.quality != null && h.quality < hotelPrefs.rating) return false;
+    if (hotelPrefs.budget && h.cash > hotelPrefs.budget) return false;
+    return true;
+  };
+
   // Live mode shows ACTUALS ONLY: live-priced itineraries and verified award
   // space. Estimate rows stay hidden unless explicitly requested per leg.
   const [showEst, setShowEst] = useState({});
@@ -135,13 +145,15 @@ export default function App() {
     if (!route) return [];
     return route.order.map((cid) => {
       const { hotels, sample } = mergeLiveHotels(hotelsFor(cid), liveHotelsMap[cid], nights[cid] ?? 2);
-      const hotel = hotels.find((h) => h.name === hotelPicks[cid]) ?? hotels[0];
+      const pool = hotels.filter(hotelPasses);
+      const list = pool.length ? pool : hotels;
+      const hotel = hotels.find((h) => h.name === hotelPicks[cid]) ?? list[0];
       const n = nights[cid] ?? 2;
       const path = hotel.pts ? bestPath(hotel.pid, hotel.pts * n, balances) : null;
       const requested = hotelPay[cid] ?? (pointsOnly && path ? "points" : path ? "points" : "cash");
       return { city: cid, hotel, nights: n, sample, path, mode: requested === "points" && path ? "points" : "cash" };
     });
-  }, [route, hotelPicks, hotelPay, nights, balances, pointsOnly, liveHotelsMap]);
+  }, [route, hotelPicks, hotelPay, nights, balances, pointsOnly, liveHotelsMap, hotelPrefs]);
 
   const ledger = useMemo(() => {
     if (!route || !fOut || !fBack) return null;
@@ -230,7 +242,12 @@ export default function App() {
     setStartAt(startIdx >= 0 ? ids[startIdx] : null);
     setInGw(t.arrivalAirport ? { iata: t.arrivalAirport.iata, lat: t.arrivalAirport.lat, lon: t.arrivalAirport.lon } : null);
     setOutGw(t.endAirport ? { iata: t.endAirport.iata, lat: t.endAirport.lat, lon: t.endAirport.lon } : null);
-    setRouteIdx(0); setFlightSel({}); setHotelPicks({}); setHotelPay({});
+    const hp = {};
+    Object.entries(t.hotelPicks ?? {}).forEach(([cityName, hotelName]) => {
+      const idx = t.stops.findIndex((st) => st.name === cityName);
+      if (idx >= 0 && ids[idx]) hp[ids[idx]] = hotelName;
+    });
+    setRouteIdx(0); setFlightSel({}); setHotelPicks(hp); setHotelPay({});
     setStep(1);
   };
 
@@ -522,9 +539,36 @@ export default function App() {
             {/* Hotels */}
             <div>
               <SectionLabel>Hotels — points program or cash</SectionLabel>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3 rounded-xl px-4 py-3" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+                {[
+                  ["stars", "Stars", [[0, "Any"], [3, "3★+"], [4, "4★+"], [5, "5★"]]],
+                  ["rating", "Rating", [[0, "Any"], [8, "8+"], [9, "9+"]]],
+                  ["budget", "Nightly budget", [[0, "Any"], [150, "≤$150"], [250, "≤$250"], [400, "≤$400"]]],
+                ].map(([k, label, opts]) => (
+                  <div key={k} className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase" }}>{label}</span>
+                    {opts.map(([v, l]) => (
+                      <button
+                        key={l}
+                        onClick={() => setHotelPrefs({ ...hotelPrefs, [k]: v })}
+                        className="px-2 py-1 rounded-full text-xs font-semibold"
+                        style={{
+                          background: hotelPrefs[k] === v ? T.ink : T.paper,
+                          color: hotelPrefs[k] === v ? "#fff" : T.inkSoft,
+                          border: `1px solid ${hotelPrefs[k] === v ? T.ink : T.mist}`,
+                        }}
+                      >{l}</button>
+                    ))}
+                  </div>
+                ))}
+              </div>
               <div className="space-y-4">
                 {route.order.map((cid) => {
-                  const { hotels, sample, live } = mergeLiveHotels(hotelsFor(cid), liveHotelsMap[cid], nights[cid] ?? 2);
+                  const merged = mergeLiveHotels(hotelsFor(cid), liveHotelsMap[cid], nights[cid] ?? 2);
+                  const { sample, live } = merged;
+                  const pool = merged.hotels.filter(hotelPasses);
+                  const filteredOut = merged.hotels.length - pool.length;
+                  const hotels = pool.length ? pool : merged.hotels;
                   const chosenName = hotelPicks[cid] ?? hotels[0].name;
                   const stay = schedule?.byCity[cid];
                   return (
@@ -540,6 +584,12 @@ export default function App() {
                         {live
                           ? <Chip tint={T.pineTint} color={T.pine}>live rates</Chip>
                           : sample && <Chip tint={T.flightTint} color={T.flight}>sample listings</Chip>}
+                        {pool.length > 0 && filteredOut > 0 && (
+                          <Chip tint={T.mist} color={T.inkSoft}>{filteredOut} hidden by filters</Chip>
+                        )}
+                        {pool.length === 0 && (
+                          <Chip tint={T.flightTint} color={T.flight}>no matches — showing all</Chip>
+                        )}
                       </div>
                       <div className="grid sm:grid-cols-2 gap-2">
                         {hotels.map((h) => {
@@ -558,6 +608,7 @@ export default function App() {
                                 {chosen && <Check size={14} style={{ color: T.gold }} />}
                               </div>
                               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                {starsOf(h) != null && <Chip tint={T.mist} color={T.gold}>{"★".repeat(starsOf(h))}</Chip>}
                                 {h.view != null && <Chip tint={T.railTint} color={T.rail}><Eye size={11} /> view {h.view}</Chip>}
                                 {h.quality != null && <Chip tint={T.mist} color={T.inkSoft}><Star size={11} /> {h.quality}</Chip>}
                                 {(h.live || h.liveCash) && <Chip tint={T.pineTint} color={T.pine}>LIVE</Chip>}

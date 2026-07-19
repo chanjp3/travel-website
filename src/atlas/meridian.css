@@ -203,3 +203,10 @@
   #qcard{max-height:56vh;overflow:auto}
   #qcard .field input[type=text],#qcard .field input[type=number],#qcard .field input[type=date]{font-size:16px} /* stop iOS focus zoom */
 }
+
+/* ---------- city guide tour ---------- */
+.minihead{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);margin:10px 0 6px}
+.attrlist{font-size:12.5px;line-height:1.7;color:var(--ink)}
+.hotelpin{cursor:default}
+.hotelpin circle{fill:var(--gold);stroke:var(--paper);stroke-width:1.6}
+.hotelpin text{font-family:var(--mono);font-size:11px;font-weight:700;fill:var(--ink);paint-order:stroke;stroke:rgba(253,251,245,.92);stroke-width:3;pointer-events:none}
