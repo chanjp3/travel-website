@@ -220,3 +220,17 @@
   box-shadow:0 2px 8px rgba(30,43,51,.35)}
 .dm-price{font:700 11px var(--mono);background:rgba(253,251,245,.95);padding:1px 6px;border-radius:6px;
   color:var(--ink);box-shadow:0 1px 4px rgba(30,43,51,.25);white-space:nowrap}
+
+/* ---------- tour filters + attraction pins ---------- */
+.tfilters{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.tsel{font-family:var(--mono);font-size:11px;color:var(--ink);background:#fff;
+  border:1.5px solid rgba(30,43,51,.22);border-radius:7px;padding:4px 5px;max-width:110px}
+.tsel:focus{outline:none;border-color:var(--ink)}
+.dm-attr{display:flex;flex-direction:column;align-items:center;gap:2px;pointer-events:none}
+.dm-diamond{width:11px;height:11px;background:var(--route);transform:rotate(45deg);
+  border:2px solid #fff;box-shadow:0 2px 6px rgba(30,43,51,.35)}
+.dm-attr-name{font:600 10.5px var(--body);background:rgba(30,43,51,.88);color:var(--paper);
+  padding:1px 6px;border-radius:6px;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.dm-pin.dm-sel .dm-dot{background:var(--route);width:15px;height:15px}
+.dm-pin.dm-sel .dm-price{color:var(--route);font-weight:800}
+.dm-pin{cursor:pointer}
