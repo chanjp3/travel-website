@@ -33,7 +33,7 @@ Requires Node 18+.
 | Trip cost ledger & points accounting | ✅ Functional — `src/lib/costs.js` |
 | Trip calendar (departure date → per-city stay dates) | ✅ Functional — `src/lib/dates.js` |
 | Cash flight itineraries & prices | ✅ **Live market fares** (Travelpayouts/Aviasales; Amadeus Enterprise branch kept) when connected; distance-model estimates otherwise |
-| Hotel rates for your dates | ✅ **Live via Hotellook** (or Amadeus Enterprise) when connected; curated/sample listings otherwise |
+| Hotel rates for your dates | ✅ **Live via LiteAPI** (or Amadeus Enterprise) when connected; curated/sample listings otherwise |
 | Point values (¢/pt) | ✅ Computed against live cash fares when connected |
 | Award prices & availability | ✅ **Live via Seats.aero** when `SEATSAERO_KEY` set (verified space + real mileage prices); chart estimates otherwise |
 
@@ -71,21 +71,24 @@ exact dates drive live fare and hotel searches; live itineraries (real
 carriers, connections, times, prices) replace the distance-model estimates,
 and ¢/pt point values are computed against the live cash fares.
 
-> **Provider note (July 2026):** Amadeus decommissioned its free Self-Service
-> API portal on 2026-07-17 — those keys no longer exist for new users. The
-> worker's default live provider is now **Travelpayouts** (free token):
-> Aviasales cached market fares for flights and Hotellook for hotel prices.
-> The Amadeus branch remains for Enterprise API Portal customers, and
-> **Duffel** is the upgrade path if you later need bookable live inventory.
+> **Provider notes (2025–2026):** Amadeus killed its free Self-Service API
+> portal on 2026-07-17, and Travelpayouts shut down the Hotellook brand and
+> API in Oct 2025. Current providers: **Travelpayouts/Aviasales** (free
+> token) for cached market fares, **LiteAPI** (free key, liteapi.travel)
+> for live hotel rates, **Seats.aero** (Partner key) for award space. The
+> Amadeus branch remains for Enterprise customers; **Duffel** is the
+> upgrade path for bookable live flight inventory.
 
 Two steps to switch it on:
 
 1. **Deploy the proxy worker** (keeps all credentials server-side):
    ```bash
-   # free token: https://www.travelpayouts.com → sign up → Tools → API token
+   # flights token: https://www.travelpayouts.com → sign up → Tools → API token
+   # hotels key:   https://liteapi.travel → sign up → API keys (sandbox is free)
    cd worker
    npx wrangler deploy
-   npx wrangler secret put TRAVELPAYOUTS_TOKEN   # flights + hotels (free)
+   npx wrangler secret put TRAVELPAYOUTS_TOKEN   # flights (free)
+   npx wrangler secret put LITEAPI_KEY           # hotel rates (free)
    npx wrangler secret put SEATSAERO_KEY         # live award space (Partner API)
    # optional, Enterprise customers only:
    #   npx wrangler secret put AMADEUS_KEY && npx wrangler secret put AMADEUS_SECRET
@@ -96,8 +99,8 @@ Two steps to switch it on:
    The header badge flips to **LIVE FARES CONNECTED**.
 
 Travelpayouts caveats: fares are cached economy market prices from real
-Aviasales searches (great for planning, not a booking guarantee), and hotel
-prices are Hotellook stay averages. Business-cabin cash rows therefore stay
+Aviasales searches (great for planning, not a booking guarantee); hotel
+rates come live from LiteAPI for your exact stay dates. Business-cabin cash rows therefore stay
 distance-model estimates — but business *awards* are fully live via
 Seats.aero, which is what the points math actually needs.
 

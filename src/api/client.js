@@ -43,9 +43,7 @@ async function getDetailed(path, params) {
 
 /** Hotels with failure detail — the city tour shows the real reason. */
 export const liveHotelsDetailed = (city, checkIn, checkOut) =>
-  city.custom
-    ? getDetailed("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, checkIn, checkOut })
-    : getDetailed("/api/hotels", { cityCode: city.cc ?? city.air, name: city.name, checkIn, checkOut });
+  getDetailed("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, cityCode: city.custom ? null : city.cc ?? city.air, checkIn, checkOut });
 
 export const searchLocations = (q) => get("/api/locations", { q });
 export const liveFlights = (from, to, date, cabin) =>
@@ -57,9 +55,7 @@ export const liveAwards = (from, to, date) => get("/api/awards", { from, to, dat
 /** Hotels for a city object. Name drives Hotellook lookup (works for any
  *  town); code/geocode serve the Amadeus branch when that's configured. */
 export const liveHotels = (city, checkIn, checkOut) =>
-  city.custom
-    ? get("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, checkIn, checkOut })
-    : get("/api/hotels", { cityCode: city.cc ?? city.air, name: city.name, checkIn, checkOut });
+  get("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, cityCode: city.custom ? null : city.cc ?? city.air, checkIn, checkOut });
 
 /**
  * Reverse geocoder — Nominatim (OSM), keyless, browser-side, low volume.

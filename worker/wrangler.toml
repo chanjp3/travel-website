@@ -3,7 +3,9 @@ main = "index.js"
 compatibility_date = "2026-01-01"
 
 # Set secrets with:
-#   wrangler secret put TRAVELPAYOUTS_TOKEN  # flights (Aviasales) + hotels (Hotellook), free
+#   wrangler secret put TRAVELPAYOUTS_TOKEN  # flights (Aviasales cached fares), free
+#   wrangler secret put LITEAPI_KEY           # hotel rates (liteapi.travel, free key)
+#                                             # (Hotellook shut down Oct 2025)
 #   wrangler secret put SEATSAERO_KEY        # Seats.aero Partner API (live awards)
 #   wrangler secret put AMADEUS_KEY          # optional — Enterprise API Portal only
 #   wrangler secret put AMADEUS_SECRET       #   (self-service was decommissioned 2026-07-17)

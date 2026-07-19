@@ -199,7 +199,7 @@ export default function App() {
     const [fl, aw, ho] = await Promise.all([
       liveFlights("TPA", "LHR", date, "Economy"),
       liveAwards("TPA", "LHR", date),
-      liveHotels({ name: "London", cc: "LON", air: "LHR" }, date, addDays(date, 2)),
+      liveHotels({ name: "London", cc: "LON", air: "LHR", lat: 51.5, lon: -0.12 }, date, addDays(date, 2)),
     ]);
     const verdict = (r) =>
       r == null ? { ok: false, note: "no response (worker unreachable or key rejected)" }
@@ -844,7 +844,7 @@ export default function App() {
               </p>
               {diag && !diag.running && (
                 <div className="mt-2 space-y-1">
-                  {[["Cash fares (Travelpayouts)", diag.flights], ["Award space (Seats.aero)", diag.awards], ["Hotel rates (Hotellook)", diag.hotels]].map(([label, v]) => (
+                  {[["Cash fares (Travelpayouts)", diag.flights], ["Award space (Seats.aero)", diag.awards], ["Hotel rates (LiteAPI)", diag.hotels]].map(([label, v]) => (
                     <div key={label} className="flex items-start justify-between gap-2 text-xs">
                       <span style={{ color: T.inkSoft }}>{label}</span>
                       <span className="font-bold text-right" style={{ color: v.ok ? T.pine : T.flight, fontFamily: "'IBM Plex Mono', monospace" }}>{v.note}</span>
