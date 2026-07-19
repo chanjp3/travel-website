@@ -12,6 +12,7 @@ import * as topojson from "topojson-client";
 import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
 import { geoSearch, liveHotels } from "../api/client.js";
+import { showDetailMap, hideDetailMap, destroyDetailMap } from "./detailMap.js";
 import { searchCities } from "../data/world.js";
 import { attractionsFor } from "../lib/trip.js";
 import "./meridian.css";
@@ -602,7 +603,7 @@ function drawHotelPins(hotels,nights){
 }
 let tourSeq=0;
 function stepCityTour(i){
-  if(i>=trip.stops.length||i<0){ gMarkers.selectAll('.hotelpin').remove(); return stepEndCity(); }
+  if(i>=trip.stops.length||i<0){ gMarkers.selectAll('.hotelpin').remove(); hideDetailMap(); return stepEndCity(); }
   const seq=++tourSeq;
   const s=trip.stops[i];
   ticket(null,null,'stops');
@@ -637,15 +638,17 @@ function stepCityTour(i){
       render(hotels,false);
     });
     $('#nx').onclick=()=>stepCityTour(i+1);
-    $('#bk').onclick=()=>{ if(i===0){ gMarkers.selectAll('.hotelpin').remove(); clearDots(); zoomToFeature(trip.dest.country).then(()=>stepItinerary()); } else stepCityTour(i-1); };
+    $('#bk').onclick=()=>{ if(i===0){ gMarkers.selectAll('.hotelpin').remove(); hideDetailMap(); clearDots(); zoomToFeature(trip.dest.country).then(()=>stepItinerary()); } else stepCityTour(i-1); };
     $('#skip').onclick=()=>stepCityTour(trip.stops.length);
   };
   render(null,true);
+  const streets=showDetailMap(container,{ lat:s.lat, lon:s.lon, pins:[], nights:s.nights });
   liveHotels({ custom:true, name:s.city.replace(/\s*\(.+\)$/,''), lat:s.lat, lon:s.lon }, ci, co).then(list=>{
     if(seq!==tourSeq) return;
     const hotels=(list??[]).filter(h=>h.price&&h.name).sort((a,b)=>a.price-b.price).slice(0,6);
     render(hotels,false);
-    drawHotelPins(hotels,s.nights);
+    const fallbackPins=()=>{ if(seq===tourSeq) drawHotelPins(hotels,s.nights); };
+    if(!showDetailMap(container,{ lat:s.lat, lon:s.lon, pins:hotels, nights:s.nights, onFail:fallbackPins })) fallbackPins();
   });
 }
 
@@ -807,5 +810,5 @@ $('#beginBtn').onclick=()=>{
   $('#ticket').classList.add('show');
   setTimeout(stepOriginCountry, RM?0:350);
 };
-return () => { container.innerHTML = ''; };
+return () => { destroyDetailMap(); container.innerHTML = ''; };
 }

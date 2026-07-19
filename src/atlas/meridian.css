@@ -210,3 +210,13 @@
 .hotelpin{cursor:default}
 .hotelpin circle{fill:var(--gold);stroke:var(--paper);stroke-width:1.6}
 .hotelpin text{font-family:var(--mono);font-size:11px;font-weight:700;fill:var(--ink);paint-order:stroke;stroke:rgba(253,251,245,.92);stroke-width:3;pointer-events:none}
+
+/* ---------- street-level detail layer (city tour) ---------- */
+.detail-map{position:absolute;inset:0;z-index:6;opacity:0;pointer-events:none;
+  transition:opacity .8s ease;filter:sepia(.18) saturate(.82) brightness(1.02)}
+.detail-map.show{opacity:1;pointer-events:auto}
+.dm-pin{display:flex;flex-direction:column;align-items:center;gap:2px}
+.dm-dot{width:13px;height:13px;border-radius:999px;background:var(--gold);border:2px solid #fff;
+  box-shadow:0 2px 8px rgba(30,43,51,.35)}
+.dm-price{font:700 11px var(--mono);background:rgba(253,251,245,.95);padding:1px 6px;border-radius:6px;
+  color:var(--ink);box-shadow:0 1px 4px rgba(30,43,51,.25);white-space:nowrap}
