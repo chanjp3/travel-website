@@ -22,75 +22,7 @@ import { defaultDepart, buildSchedule, toISO, fmtDay, fmtShort, dateForDay } fro
 import { Chip, SectionLabel, NightsStepper, PayToggle } from "./components/ui.jsx";
 import { RouteSpine } from "./components/RouteSpine.jsx";
 import { JourneyMap } from "./components/JourneyMap.jsx";
-
-function CitySearch({ placeholder, exclude = [], onPick, towns = true }) {
-  const [q, setQ] = useState("");
-  const [townHits, setTownHits] = useState([]);
-  const hits = useMemo(() => searchCities(q).filter((c) => !exclude.includes(c.id)), [q, exclude]);
-
-  // Geocode smaller towns (Worthing, Arundel…) that the curated list lacks.
-  useEffect(() => {
-    if (!towns || q.trim().length < 3) { setTownHits([]); return; }
-    let on = true;
-    const t = setTimeout(async () => {
-      const res = await geoSearch(q.trim());
-      if (!on) return;
-      const known = new Set(searchCities(q).map((c) => `${c.name}|${c.country}`.toLowerCase()));
-      setTownHits(
-        res
-          .filter((g) => g.latitude != null && !known.has(`${g.name}|${g.country}`.toLowerCase()))
-          .slice(0, 4)
-      );
-    }, 350);
-    return () => { on = false; clearTimeout(t); };
-  }, [q, towns]);
-
-  const pick = (c) => { onPick(c); setQ(""); setTownHits([]); };
-  const pickTown = (g) => pick(registerCity(makeCustomCity(g)));
-
-  return (
-    <div className="relative">
-      <div className="flex items-center gap-2 px-3 py-2 rounded-xl" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
-        <Search size={14} style={{ color: T.inkSoft }} />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder={placeholder}
-          className="flex-1 text-sm outline-none bg-transparent"
-        />
-      </div>
-      {(hits.length > 0 || townHits.length > 0) && (
-        <div className="absolute z-10 mt-1 w-full rounded-xl overflow-hidden shadow-lg" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
-          {hits.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => pick(c)}
-              className="w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:opacity-70"
-              style={{ borderBottom: `1px solid ${T.mist}` }}
-            >
-              <span><b>{c.name}</b> <span style={{ color: T.inkSoft }}>· {c.country}</span></span>
-              <span className="text-xs font-bold" style={{ color: T.rail, fontFamily: "'IBM Plex Mono', monospace" }}>{c.air}</span>
-            </button>
-          ))}
-          {townHits.map((g) => (
-            <button
-              key={`${g.name}-${g.latitude}-${g.longitude}`}
-              onClick={() => pickTown(g)}
-              className="w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:opacity-70"
-              style={{ borderBottom: `1px solid ${T.mist}` }}
-            >
-              <span>
-                <b>{g.name}</b>{" "}
-                <span style={{ color: T.inkSoft }}>· {g.admin1 ? `${g.admin1}, ` : ""}{g.country}</span>
-              </span>
-              <Chip tint={T.pineTint} color={T.pine}>town</Chip>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+import { MapWizard } from "./components/MapWizard.jsx";
 
 const Mark = ({ size = 34 }) => (
   <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
@@ -122,11 +54,13 @@ export default function App() {
   const [flightPay, setFlightPay] = useState({ out: "points", back: "points" });
   const [hotelPicks, setHotelPicks] = useState({});
   const [hotelPay, setHotelPay] = useState({});
+  const [endAt, setEndAt] = useState(null);       // "where do you want to end?" pin
+  const [prefsOpen, setPrefsOpen] = useState(false);
 
   const origin = cityById[originId];
   const results = useMemo(
-    () => (destIds.length >= 1 ? scoreRoutes(destIds, wCost, originId) : null),
-    [destIds, wCost, originId]
+    () => (destIds.length >= 1 ? scoreRoutes(destIds, wCost, originId, { endAt }) : null),
+    [destIds, wCost, originId, endAt]
   );
   const route = results?.top[Math.min(routeIdx, (results?.top.length ?? 1) - 1)];
 
@@ -224,7 +158,7 @@ export default function App() {
     return [...jp, ...geo].slice(0, 6);
   }, [destIds, originId, japanSuggestions]);
 
-  const steps = ["Trip brief", "Destinations", "Route & flights", "Itinerary & cost"];
+  const steps = ["The map", "Route & flights", "Itinerary & cost"];
   const setN = (cid, n) => setNights({ ...nights, [cid]: n });
 
   return (
@@ -244,9 +178,18 @@ export default function App() {
               <p className="text-xs" style={{ color: T.inkSoft }}>Points-optimized trip planner · any origin, any destination</p>
             </div>
           </div>
-          <Chip tint={liveMode() ? T.pineTint : T.flightTint} color={liveMode() ? T.pine : T.flight}>
-            {liveMode() ? "LIVE FARES CONNECTED" : "ESTIMATE MODE"}
-          </Chip>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPrefsOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+              style={{ border: `1px solid ${T.mist}`, color: T.ink, background: T.card }}
+            >
+              <Wallet size={13} style={{ color: T.rail }} /> Points & preferences
+            </button>
+            <Chip tint={liveMode() ? T.pineTint : T.flightTint} color={liveMode() ? T.pine : T.flight}>
+              {liveMode() ? "LIVE FARES CONNECTED" : "ESTIMATE MODE"}
+            </Chip>
+          </div>
         </div>
         <div className="max-w-5xl mx-auto px-4 pb-3 flex gap-1 overflow-x-auto">
           {steps.map((s, i) => (
@@ -270,272 +213,21 @@ export default function App() {
         </div>
       </header>
 
+      {step === 0 ? (
+        <MapWizard
+          originId={originId} setOriginId={setOriginId}
+          departDate={departDate} setDepartDate={setDepartDate}
+          destIds={destIds} setDestIds={setDestIds}
+          nights={nights} setN={setN}
+          endAt={endAt} setEndAt={setEndAt}
+          suggestions={suggestions} route={route} schedule={schedule}
+          onDone={() => { setRouteIdx(0); setFlightSel({}); setStep(1); }}
+        />
+      ) : (
       <main className="max-w-5xl mx-auto px-4 py-8">
         <div key={step} className="step-in">
-        {/* ── STEP 0 · BRIEF ── */}
-        {step === 0 && (
-          <div className="grid md:grid-cols-2 gap-6">
-            <div>
-              <SectionLabel>The brief</SectionLabel>
-              <h2 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: "clamp(30px, 4.5vw, 42px)", lineHeight: 1.18, letterSpacing: "-0.01em" }}>
-                Any trip, built<br />around <span style={{ color: T.flight }}>your points.</span>
-              </h2>
-              <p className="mt-3 text-sm leading-relaxed" style={{ color: T.inkSoft, maxWidth: "44ch" }}>
-                Pick an origin and destinations anywhere. The engine sequences the stops, routes flights
-                (with connections) and trains, funds awards through your card transfer partners, and
-                prices the whole trip.
-              </p>
-              <div className="flex flex-wrap gap-x-5 gap-y-1 mt-4 text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
-                <span><b style={{ color: T.ink }}>40,320</b> orderings scored</span>
-                <span><b style={{ color: T.ink }}>12</b> loyalty programs</span>
-                <span><b style={{ color: T.ink }}>any town</b> on Earth</span>
-              </div>
-
-              <div className="mt-5 rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Globe size={15} style={{ color: T.rail }} />
-                  <span className="text-sm font-bold">Origin</span>
-                  <Chip tint={T.railTint} color={T.rail}>{origin.name} · {origin.air}</Chip>
-                </div>
-                <CitySearch placeholder="Change origin city…" exclude={[originId]} onPick={(c) => setOriginId(c.id)} />
-              </div>
-
-              <div className="mt-4 rounded-xl p-4" style={{ background: T.card, border: `1.5px solid ${destIds.length ? T.mist : T.rail}` }}>
-                <div className="flex items-center gap-2 mb-2">
-                  <MapPin size={15} style={{ color: T.rail }} />
-                  <span className="text-sm font-bold">Primary destination</span>
-                  {destIds[0] && (
-                    <Chip tint={T.pineTint} color={T.pine}>
-                      {cityById[destIds[0]].name} · {cityById[destIds[0]].air}
-                    </Chip>
-                  )}
-                </div>
-                <CitySearch
-                  placeholder="Where to? Any city — or a smaller town…"
-                  exclude={[originId, ...destIds]}
-                  onPick={(c) => {
-                    setDestIds([c.id, ...destIds.slice(1)]);
-                    if (!nights[c.id]) setN(c.id, 3);
-                    setRouteIdx(0); setFlightSel({}); setHotelPicks({});
-                  }}
-                />
-                <p className="text-xs mt-2" style={{ color: T.inkSoft }}>
-                  Start with your main stop — the builder then suggests cities around it, and the search
-                  also finds smaller towns with hotels priced for your dates.
-                </p>
-              </div>
-
-              <div className="mt-4 rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Calendar size={15} style={{ color: T.rail }} />
-                  <span className="text-sm font-bold">Departure date</span>
-                  {schedule && <Chip tint={T.railTint} color={T.rail}>home {fmtDay(schedule.returnDate)}</Chip>}
-                </div>
-                <input
-                  type="date" value={departDate} min={toISO(new Date())}
-                  onChange={(e) => { if (e.target.value) { setDepartDate(e.target.value); setFlightSel({}); } }}
-                  className="w-full px-3 py-2 rounded-xl text-sm font-semibold"
-                  style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'IBM Plex Mono', monospace" }}
-                />
-                <p className="text-xs mt-2" style={{ color: T.inkSoft }}>
-                  Flights and hotel rates are priced for these exact dates{liveMode() ? " with live data" : " once live data is connected"}.
-                </p>
-              </div>
-
-              <div className="mt-4 rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
-                <div className="flex items-center gap-2 mb-3">
-                  <Wallet size={15} style={{ color: T.rail }} />
-                  <span className="text-sm font-bold">Points balances</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {BALANCE_SOURCES.map((k) => (
-                    <label key={k} className="text-xs">
-                      <span className="font-semibold" style={{ color: T.inkSoft }}>{SOURCES[k].short}</span>
-                      <input
-                        type="number" value={balances[k] ?? 0} step={5000} min={0}
-                        onChange={(e) => setBalances({ ...balances, [k]: +e.target.value })}
-                        className="w-full mt-0.5 px-2 py-1.5 rounded-lg text-sm font-semibold"
-                        style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'IBM Plex Mono', monospace" }}
-                      />
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <button
-                onClick={() => setPointsOnly(!pointsOnly)}
-                className="w-full rounded-xl p-4 flex items-center justify-between text-left"
-                style={{ background: pointsOnly ? T.pineTint : T.card, border: `1.5px solid ${pointsOnly ? T.pine : T.mist}` }}
-              >
-                <div>
-                  <div className="text-sm font-bold" style={{ color: pointsOnly ? T.pine : T.ink }}>
-                    Points-only mode {pointsOnly ? "· ON" : "· OFF"}
-                  </div>
-                  <div className="text-xs mt-0.5" style={{ color: T.inkSoft }}>
-                    Only show awards your balances can fund via card transfer partners
-                  </div>
-                </div>
-                <div className="rounded-full relative" style={{ width: 40, height: 22, background: pointsOnly ? T.pine : T.mist }}>
-                  <div className="rounded-full bg-white absolute transition-all" style={{ width: 18, height: 18, top: 2, left: pointsOnly ? 20 : 2 }} />
-                </div>
-              </button>
-
-              <div className="rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
-                <span className="text-sm font-bold">Cabin preference · long-haul</span>
-                <div className="flex gap-2 mt-2">
-                  {["Economy", "Business"].map((c) => (
-                    <button
-                      key={c} onClick={() => { setCabinPref(c); setFlightSel({}); }}
-                      className="flex-1 py-2 rounded-lg text-sm font-semibold"
-                      style={{
-                        background: cabinPref === c ? T.railTint : T.paper,
-                        border: `1.5px solid ${cabinPref === c ? T.rail : T.mist}`,
-                        color: cabinPref === c ? T.rail : T.inkSoft,
-                      }}
-                    >{c}</button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
-                <div className="flex justify-between text-sm font-bold mb-1">
-                  <span style={{ color: wCost > 0.5 ? T.pine : T.inkSoft }}>Cheapest</span>
-                  <span className="font-normal text-xs" style={{ color: T.inkSoft }}>optimizer priority</span>
-                  <span style={{ color: wCost < 0.5 ? T.rail : T.inkSoft }}>Fastest</span>
-                </div>
-                <input type="range" min={0} max={1} step={0.05} value={1 - wCost} onChange={(e) => setWCost(1 - +e.target.value)} className="w-full" />
-              </div>
-
-              <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: T.railTint, border: `1px solid ${T.rail}22` }}>
-                <Info size={16} style={{ color: T.rail, marginTop: 2, flexShrink: 0 }} />
-                <p className="text-xs leading-relaxed">
-                  <b>{liveMode() ? "Live mode" : "Estimate mode"}:</b>{" "}
-                  {liveMode()
-                    ? "cash fares and hotel rates come from live market data for your dates, and award rows marked LIVE AWARD are verified bookable space via Seats.aero (chart estimates fill any gaps)."
-                    : "award prices come from published-chart estimates and cash fares from a distance model. Deploy the included Worker with your API keys for live prices and verified award space."}
-                </p>
-              </div>
-
-              <button
-                onClick={() => setStep(1)}
-                disabled={!destIds.length}
-                className="w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 text-white disabled:opacity-40"
-                style={{ background: T.ink }}
-              >
-                {destIds.length ? "Build the trip" : "Pick a primary destination first"} <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── STEP 1 · DESTINATIONS ── */}
-        {step === 1 && (
-          <div>
-            <SectionLabel>
-              {destIds.length ? `Build around ${cityById[destIds[0]].name}` : "Destinations"}
-            </SectionLabel>
-            <CitySearch
-              placeholder="Add a stop… big cities or small towns (e.g. Manchester, Worthing, Arundel)"
-              exclude={[originId, ...destIds]}
-              onPick={(c) => { setDestIds([...destIds, c.id]); if (!nights[c.id]) setN(c.id, c.custom ? 1 : 2); }}
-            />
-            {!destIds.length && (
-              <div className="mt-4 rounded-xl p-4 flex items-start gap-3" style={{ background: T.railTint, border: `1px solid ${T.rail}22` }}>
-                <Info size={16} style={{ color: T.rail, marginTop: 2, flexShrink: 0 }} />
-                <p className="text-xs leading-relaxed">
-                  Pick a <b>primary destination</b> (here or on the brief step) and the builder will suggest
-                  major cities in and around that country. Smaller towns still get hotels, live prices, and
-                  points options.
-                </p>
-              </div>
-            )}
-
-            <div className="grid sm:grid-cols-2 gap-3 mt-4">
-              {destIds.map((cid) => {
-                const c = cityById[cid];
-                const pack = packFor(cid);
-                return (
-                  <div key={cid} className="rounded-xl p-4" style={{ background: T.card, border: `1.5px solid ${T.ink}` }}>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-baseline gap-2">
-                        <span className="font-bold">{c.name}</span>
-                        <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.inkSoft, fontSize: 13 }}>
-                          {JP_NAMES[cid] ?? c.country}
-                        </span>
-                      </div>
-                      <button onClick={() => setDestIds(destIds.filter((d) => d !== cid))} style={{ color: T.inkSoft }}>
-                        <X size={16} />
-                      </button>
-                    </div>
-                    <div className="flex items-center justify-between mt-2.5">
-                      <div className="flex items-center gap-2 text-xs font-semibold">
-                        Nights: <NightsStepper n={nights[cid] ?? 2} setN={(n) => setN(cid, n)} />
-                      </div>
-                      {pack && (
-                        <Chip tint={T.railTint} color={T.rail}>
-                          <TrainFront size={11} /> {pack.name} rail data
-                        </Chip>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {suggestions.length > 0 && (
-              <div className="mt-7">
-                <div className="flex items-center gap-2 mb-3">
-                  <Sparkles size={15} style={{ color: T.gold }} />
-                  <span className="text-xs font-bold tracking-widest uppercase" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
-                    Suggested stops around {cityById[destIds[0]].name}
-                  </span>
-                </div>
-                <div className="grid sm:grid-cols-2 gap-3">
-                  {suggestions.map(({ city: c, why, add }) => (
-                    <button
-                      key={c.id}
-                      onClick={() => { setDestIds([...destIds, c.id]); if (!nights[c.id]) setN(c.id, JP_NAMES[c.id] ? 1 : 2); }}
-                      className="text-left rounded-xl p-4"
-                      style={{ background: T.card, border: `1.5px solid ${T.mist}` }}
-                    >
-                      <div className="flex items-baseline gap-2">
-                        <span className="font-bold">{c.name}</span>
-                        <span style={{ fontFamily: "'Zen Old Mincho', serif", color: T.inkSoft, fontSize: 13 }}>
-                          {JP_NAMES[c.id] ?? c.country}
-                        </span>
-                      </div>
-                      <p className="text-xs mt-1.5 leading-relaxed" style={{ color: T.inkSoft }}>{why}</p>
-                      <div className="mt-2"><Chip tint={T.pineTint} color={T.pine}>{add}</Chip></div>
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs mt-3" style={{ color: T.inkSoft }}>
-                  Want somewhere smaller? Type any town in the search above — hotels and points options still price for it.
-                </p>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between mt-6 gap-3">
-              <div className="text-sm" style={{ color: T.inkSoft }}>
-                <b style={{ color: T.ink }}>{origin.name} → {destIds.length} stops · {totalNights} nights</b>
-                {destIds.length >= 2 && <> · {permutations(destIds).length.toLocaleString()} orderings will be scored</>}
-              </div>
-              <button
-                onClick={() => { setRouteIdx(0); setFlightSel({}); setStep(2); }}
-                disabled={destIds.length < 1}
-                className="py-3 px-5 rounded-xl font-bold text-sm flex items-center gap-2 text-white disabled:opacity-40"
-                style={{ background: T.ink }}
-              >
-                Optimize route <ChevronRight size={16} />
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* ── steps 2/3 need a destination ── */}
-        {(step === 2 || step === 3) && !route && (
+        {(step === 1 || step === 2) && !route && (
           <div className="rounded-xl p-8 text-center" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
             <p className="text-sm font-bold">No destinations yet</p>
             <p className="text-xs mt-1" style={{ color: T.inkSoft }}>Pick a primary destination on the brief step and the builder takes it from there.</p>
@@ -546,7 +238,7 @@ export default function App() {
         )}
 
         {/* ── STEP 2 · ROUTE & FLIGHTS ── */}
-        {step === 2 && results && route && (
+        {step === 1 && results && route && (
           <div className="space-y-7">
             <div>
               <SectionLabel>
@@ -700,10 +392,10 @@ export default function App() {
             )}
 
             <div className="flex justify-between">
-              <button onClick={() => setStep(1)} className="py-3 px-4 rounded-xl font-bold text-sm flex items-center gap-1" style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}>
-                <ChevronLeft size={16} /> Destinations
+              <button onClick={() => setStep(0)} className="py-3 px-4 rounded-xl font-bold text-sm flex items-center gap-1" style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}>
+                <ChevronLeft size={16} /> Back to the map
               </button>
-              <button onClick={() => setStep(3)} className="py-3 px-5 rounded-xl font-bold text-sm flex items-center gap-2 text-white" style={{ background: T.ink }}>
+              <button onClick={() => setStep(2)} className="py-3 px-5 rounded-xl font-bold text-sm flex items-center gap-2 text-white" style={{ background: T.ink }}>
                 Itinerary & cost <ChevronRight size={16} />
               </button>
             </div>
@@ -711,7 +403,7 @@ export default function App() {
         )}
 
         {/* ── STEP 3 · ITINERARY & COST ── */}
-        {step === 3 && route && fOut && fBack && ledger && (
+        {step === 2 && route && fOut && fBack && ledger && (
           <div className="space-y-8">
             <div className="rounded-2xl p-5 text-white" style={{ background: T.ink }}>
               <div className="flex items-baseline justify-between flex-wrap gap-2">
@@ -893,7 +585,7 @@ export default function App() {
             </div>
 
             <div className="flex justify-between items-center pb-8">
-              <button onClick={() => setStep(2)} className="py-3 px-4 rounded-xl font-bold text-sm flex items-center gap-1" style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}>
+              <button onClick={() => setStep(1)} className="py-3 px-4 rounded-xl font-bold text-sm flex items-center gap-1" style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}>
                 <ChevronLeft size={16} /> Route & flights
               </button>
               <p className="text-xs text-right" style={{ color: T.inkSoft }}>
@@ -906,7 +598,9 @@ export default function App() {
         )}
         </div>
       </main>
+      )}
 
+      {step > 0 && (
       <footer className="border-t mt-8" style={{ borderColor: T.mist, background: T.card }}>
         <div className="max-w-5xl mx-auto px-4 py-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="flex items-center gap-2.5">
@@ -920,6 +614,97 @@ export default function App() {
           </p>
         </div>
       </footer>
+      )}
+
+      {prefsOpen && (
+        <div className="fixed inset-0 z-50" onClick={() => setPrefsOpen(false)}>
+          <div className="absolute inset-0" style={{ background: "rgba(22,24,29,0.35)" }} />
+          <aside
+            onClick={(e) => e.stopPropagation()}
+            className="absolute right-0 top-0 h-full w-[400px] max-w-[92vw] overflow-y-auto p-5 space-y-4 step-in"
+            style={{ background: T.paper, boxShadow: "-16px 0 48px rgba(22,24,29,.25)" }}
+          >
+            <div className="flex items-center justify-between">
+              <h2 style={{ fontFamily: "'Zen Old Mincho', serif", fontWeight: 900, fontSize: 20 }}>Points & preferences</h2>
+              <button onClick={() => setPrefsOpen(false)} style={{ color: T.inkSoft }}><X size={18} /></button>
+            </div>
+
+            <button
+              onClick={() => setPointsOnly(!pointsOnly)}
+              className="w-full rounded-xl p-4 flex items-center justify-between text-left"
+              style={{ background: pointsOnly ? T.pineTint : T.card, border: `1.5px solid ${pointsOnly ? T.pine : T.mist}` }}
+            >
+              <div>
+                <div className="text-sm font-bold" style={{ color: pointsOnly ? T.pine : T.ink }}>
+                  Points-only mode {pointsOnly ? "· ON" : "· OFF"}
+                </div>
+                <div className="text-xs mt-0.5" style={{ color: T.inkSoft }}>
+                  Only show awards your balances can fund via card transfer partners
+                </div>
+              </div>
+              <div className="rounded-full relative flex-shrink-0" style={{ width: 40, height: 22, background: pointsOnly ? T.pine : T.mist }}>
+                <div className="rounded-full bg-white absolute transition-all" style={{ width: 18, height: 18, top: 2, left: pointsOnly ? 20 : 2 }} />
+              </div>
+            </button>
+
+            <div className="rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+              <span className="text-sm font-bold">Cabin preference · long-haul</span>
+              <div className="flex gap-2 mt-2">
+                {["Economy", "Business"].map((c) => (
+                  <button
+                    key={c} onClick={() => { setCabinPref(c); setFlightSel({}); }}
+                    className="flex-1 py-2 rounded-lg text-sm font-semibold"
+                    style={{
+                      background: cabinPref === c ? T.railTint : T.paper,
+                      border: `1.5px solid ${cabinPref === c ? T.rail : T.mist}`,
+                      color: cabinPref === c ? T.rail : T.inkSoft,
+                    }}
+                  >{c}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+              <div className="flex justify-between text-sm font-bold mb-1">
+                <span style={{ color: wCost > 0.5 ? T.pine : T.inkSoft }}>Cheapest</span>
+                <span className="font-normal text-xs" style={{ color: T.inkSoft }}>optimizer priority</span>
+                <span style={{ color: wCost < 0.5 ? T.rail : T.inkSoft }}>Fastest</span>
+              </div>
+              <input type="range" min={0} max={1} step={0.05} value={1 - wCost} onChange={(e) => setWCost(1 - +e.target.value)} className="w-full" />
+            </div>
+
+            <div className="rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+              <div className="flex items-center gap-2 mb-3">
+                <Wallet size={15} style={{ color: T.rail }} />
+                <span className="text-sm font-bold">Points balances</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {BALANCE_SOURCES.map((k) => (
+                  <label key={k} className="text-xs">
+                    <span className="font-semibold" style={{ color: T.inkSoft }}>{SOURCES[k].short}</span>
+                    <input
+                      type="number" value={balances[k] ?? 0} step={5000} min={0}
+                      onChange={(e) => setBalances({ ...balances, [k]: +e.target.value })}
+                      className="w-full mt-0.5 px-2 py-1.5 rounded-lg text-sm font-semibold"
+                      style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'IBM Plex Mono', monospace" }}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: T.railTint, border: `1px solid ${T.rail}22` }}>
+              <Info size={16} style={{ color: T.rail, marginTop: 2, flexShrink: 0 }} />
+              <p className="text-xs leading-relaxed">
+                <b>{liveMode() ? "Live mode" : "Estimate mode"}:</b>{" "}
+                {liveMode()
+                  ? "cash fares and hotel rates come from live market data for your dates, and award rows marked LIVE AWARD are verified bookable space via Seats.aero (chart estimates fill any gaps)."
+                  : "award prices come from published-chart estimates and cash fares from a distance model. Deploy the included Worker with your API keys for live prices and verified award space."}
+              </p>
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

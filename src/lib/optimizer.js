@@ -54,10 +54,15 @@ function endGateway(cityId, originCity) {
   return { gw: c.air, min: 45, usd: 15 }; // own airport, nominal local transfer
 }
 
-export function scoreRoutes(cityIds, wCost, originId) {
+export function scoreRoutes(cityIds, wCost, originId, { endAt } = {}) {
   const wTime = 1 - wCost;
   const origin = cityById[originId];
-  const perms = permutations(cityIds);
+  // endAt pins the final stop (the "where do you want to end?" choice);
+  // all orderings still compete for everything before it.
+  let perms = permutations(cityIds);
+  if (endAt && cityIds.includes(endAt) && cityIds.length > 1) {
+    perms = perms.filter((p) => p[p.length - 1] === endAt);
+  }
 
   const scored = perms.map((order) => {
     const inGw = endGateway(order[0], origin);
@@ -97,7 +102,7 @@ export function scoreRoutes(cityIds, wCost, originId) {
   for (const s of scored) {
     const key = [...s.order].join(">") + s.inGw.gw + s.outGw.gw;
     const mirror = [...s.order].reverse().join(">") + s.outGw.gw + s.inGw.gw;
-    if (seen.has(mirror)) continue;
+    if (!endAt && seen.has(mirror)) continue; // pinned end: mirrors aren't equivalent
     seen.add(key); top.push(s);
     if (top.length === 3) break;
   }

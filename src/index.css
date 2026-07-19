@@ -83,6 +83,88 @@ input:focus-visible {
   animation: pulse-dot 1.1s ease-in-out infinite;
 }
 
+/* ── map wizard ──────────────────────────────────────────────────────── */
+
+.wizard-card {
+  background: rgba(250, 250, 248, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(22, 24, 29, 0.08);
+  box-shadow:
+    0 2px 6px rgba(22, 24, 29, 0.08),
+    0 24px 60px -24px rgba(22, 24, 29, 0.35);
+}
+
+.map-pin {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.map-pin .pin-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: #16181d;
+  border: 3px solid #fff;
+  box-shadow: 0 2px 8px rgba(22, 24, 29, 0.4);
+}
+.pin-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #d9432f;
+  color: #fff;
+  font: 700 12px "IBM Plex Mono", monospace;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2.5px solid #fff;
+  box-shadow: 0 2px 8px rgba(22, 24, 29, 0.4);
+}
+.map-pin-end .pin-num {
+  background: #0b5fb0;
+}
+.pin-sug {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #fff;
+  color: #1d7a5f;
+  font-weight: 800;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #1d7a5f;
+  box-shadow: 0 2px 8px rgba(22, 24, 29, 0.25);
+}
+.pin-air {
+  padding: 2px 7px;
+  border-radius: 7px;
+  background: #fff;
+  color: #d9432f;
+  border: 1.5px solid #d9432f;
+  font: 700 11px "IBM Plex Mono", monospace;
+  box-shadow: 0 2px 8px rgba(22, 24, 29, 0.3);
+}
+.pin-name {
+  padding: 1px 7px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.94);
+  font-size: 11px;
+  font-weight: 700;
+  color: #16181d;
+  box-shadow: 0 1px 4px rgba(22, 24, 29, 0.25);
+  white-space: nowrap;
+}
+.pin-name em {
+  font-style: normal;
+  color: #0b5fb0;
+  font: 700 10px "IBM Plex Mono", monospace;
+  margin-left: 4px;
+}
+
 input[type="range"] {
   accent-color: #0b5fb0;
 }

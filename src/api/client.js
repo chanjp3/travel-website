@@ -32,6 +32,27 @@ export const liveHotels = (city, checkIn, checkOut) =>
     : get("/api/hotels", { cityCode: city.cc ?? city.air, name: city.name, checkIn, checkOut });
 
 /**
+ * Reverse geocoder — Nominatim (OSM), keyless, browser-side, low volume.
+ * Powers click-to-pick on the map: a click at country zoom drills in, a
+ * click at city zoom resolves to the town under the cursor. Fails soft.
+ */
+export async function reverseGeocode(lat, lon, zoomedIn) {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=${zoomedIn ? 10 : 5}&accept-language=en`,
+      { signal: AbortSignal.timeout(6000), headers: { Accept: "application/json" } }
+    );
+    if (!res.ok) return null;
+    const j = await res.json();
+    const a = j.address ?? {};
+    return {
+      name: a.city ?? a.town ?? a.village ?? a.municipality ?? a.county ?? a.state ?? j.name ?? null,
+      country: a.country ?? null,
+    };
+  } catch { return null; }
+}
+
+/**
  * Town geocoder — Open-Meteo, free and keyless, called directly from the
  * browser. Lets the builder accept any town on Earth (Worthing, Arundel…)
  * even before the Amadeus worker is deployed. Fails soft to [].
