@@ -45,6 +45,21 @@ async function getDetailed(path, params, timeoutMs = 12000) {
 export const liveHotelsDetailed = (city, checkIn, checkOut, radius) =>
   getDetailed("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, cityCode: city.custom ? null : city.cc ?? city.air, checkIn, checkOut, radius }, 20000);
 
+/** Cloud trip sync: save returns a short code, load fetches by code. */
+export async function saveTripCloud(data) {
+  if (!BASE) return { code: null, error: "not-configured" };
+  try {
+    const res = await fetch(new URL("/api/trips", BASE), {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data), signal: AbortSignal.timeout(12000),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return { code: null, error: j?.error ?? `HTTP ${res.status}` };
+    return { code: j.code, error: null };
+  } catch { return { code: null, error: "network error — worker unreachable" }; }
+}
+export const loadTripCloud = (code) => getDetailed("/api/trips", { code });
+
 export const searchLocations = (q) => get("/api/locations", { q });
 export const liveFlights = (from, to, date, cabin) =>
   get("/api/flights", { from, to, date, cabin: cabin === "Business" ? "BUSINESS" : "ECONOMY" });

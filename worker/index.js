@@ -42,7 +42,8 @@ async function amadeus(env, path, params) {
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
   "Content-Type": "application/json",
 };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: CORS });
@@ -206,6 +207,28 @@ export default {
           price: +h.offers?.[0]?.price?.total || null,
           lat: h.hotel?.latitude, lon: h.hotel?.longitude,
         })) ?? []);
+      }
+      if (url.pathname === "/api/trips") {
+        if (!env.MERIDIAN_TRIPS) {
+          return json({ error: "trip storage not configured — create a KV namespace and bind it as MERIDIAN_TRIPS" }, 501);
+        }
+        if (req.method === "POST") {
+          const body = await req.text();
+          if (body.length > 120_000) return json({ error: "trip too large" }, 413);
+          const alphabet = "ABCDEFGHJKMNPQRSTVWXYZ23456789";
+          let code = "";
+          for (let attempt = 0; attempt < 5; attempt++) {
+            const buf = new Uint8Array(8);
+            crypto.getRandomValues(buf);
+            code = [...buf].map((b) => alphabet[b % alphabet.length]).join("");
+            if (!(await env.MERIDIAN_TRIPS.get(code))) break;
+          }
+          await env.MERIDIAN_TRIPS.put(code, body, { expirationTtl: 60 * 60 * 24 * 90 });
+          return json({ code });
+        }
+        const saved = await env.MERIDIAN_TRIPS.get((q.code ?? "").toUpperCase().trim());
+        if (!saved) return json({ error: "no trip found for that code (codes expire after 90 days)" }, 404);
+        return new Response(saved, { headers: CORS });
       }
       if (url.pathname === "/api/awards") {
         if (!env.SEATSAERO_KEY) return json({ error: "seats.aero not configured" }, 501);
