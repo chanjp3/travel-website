@@ -17,6 +17,36 @@ async function get(path, params) {
   } catch { return null; }
 }
 
+/** Like get(), but reports WHY a call failed instead of a silent null. */
+async function getDetailed(path, params) {
+  if (!BASE) return { data: null, error: "not-configured" };
+  const url = new URL(BASE + path);
+  Object.entries(params).forEach(([k, v]) => v != null && url.searchParams.set(k, v));
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(12000) });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try {
+        const j = await res.json();
+        if (j?.error) msg += ` · ${String(j.error).slice(0, 140)}`;
+      } catch { /* body wasn't JSON */ }
+      return { data: null, error: msg };
+    }
+    return { data: await res.json(), error: null };
+  } catch (e) {
+    return {
+      data: null,
+      error: e?.name === "TimeoutError" || e?.name === "AbortError" ? "timed out after 12s" : "network error — worker unreachable",
+    };
+  }
+}
+
+/** Hotels with failure detail — the city tour shows the real reason. */
+export const liveHotelsDetailed = (city, checkIn, checkOut) =>
+  city.custom
+    ? getDetailed("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, checkIn, checkOut })
+    : getDetailed("/api/hotels", { cityCode: city.cc ?? city.air, name: city.name, checkIn, checkOut });
+
 export const searchLocations = (q) => get("/api/locations", { q });
 export const liveFlights = (from, to, date, cabin) =>
   get("/api/flights", { from, to, date, cabin: cabin === "Business" ? "BUSINESS" : "ECONOMY" });

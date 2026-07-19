@@ -11,7 +11,7 @@ import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
-import { geoSearch, liveHotels } from "../api/client.js";
+import { geoSearch, liveHotels, liveHotelsDetailed, liveMode } from "../api/client.js";
 import { showDetailMap, hideDetailMap, destroyDetailMap } from "./detailMap.js";
 import { searchCities } from "../data/world.js";
 import { attractionsFor } from "../lib/trip.js";
@@ -612,19 +612,26 @@ function stepCityTour(i){
   let lead=1; for(let j=0;j<i;j++) lead+=trip.stops[j].nights;
   const ci=addDaysISO(trip.date,lead), co=addDaysISO(trip.date,lead+s.nights);
   const attractions=attractionListFor(s.city);
-  const render=(hotels,loading)=>{
+  const render=(hotels,state,errMsg)=>{
+    // state: 'loading' | 'ok' | 'error' | 'empty' | 'off'
+    const hotelBlock =
+      state==='loading' ? '<div class="hint" style="color:var(--route)">Finding live hotel rates…</div>'
+      : state==='error' ? `<div class="hint" style="color:var(--route)">Live rates unavailable — ${errMsg}.</div>
+          <button class="btn ghost sm" id="rt">Retry</button>`
+      : state==='empty' ? `<div class="hint">No live rates came back for these dates — curated picks await on the itinerary desk.</div>
+          <button class="btn ghost sm" id="rt">Retry</button>`
+      : state==='off' ? '<div class="hint">Connect the worker (VITE_API_BASE) for live hotel rates — curated picks await on the itinerary desk.</div>'
+      : `<label class="minihead">Where you could stay — pins on the map, tap to prefer</label>
+        <div class="optlist" style="max-height:150px">${hotels.map((h,j)=>`
+          <div class="opt${trip.hotelPicks[s.city]===h.name?' sel':''}" data-h="${j}">
+            <span class="iata">$${Math.round(h.price/Math.max(s.nights,1))}</span>
+            <span class="nm">${h.name}${h.stars>0?`<div class="sub" style="color:var(--gold)">${'★'.repeat(Math.min(h.stars,5))}</div>`:''}</span>
+          </div>`).join('')}</div>`;
     showCard(`
       <div class="eyebrow">City guide · ${i+1} of ${trip.stops.length}</div>
       <div class="question">${s.city}</div>
       <div class="hint">${s.nights} night${s.nights>1?'s':''} · ${fmtDate(ci)} → ${fmtDate(co)}</div>
-      ${loading?'<div class="hint" style="color:var(--route)">Finding live hotel rates…</div>':''}
-      ${hotels&&hotels.length?`<label class="minihead">Where you could stay — pins on the map, tap to prefer</label>
-        <div class="optlist" style="max-height:150px">${hotels.map((h,j)=>`
-          <div class="opt${trip.hotelPicks[s.city]===h.name?' sel':''}" data-h="${j}">
-            <span class="iata">$${Math.round(h.price/Math.max(s.nights,1))}</span>
-            <span class="nm">${h.name}${h.stars?`<div class="sub" style="color:var(--gold)">${'★'.repeat(Math.min(h.stars,5))}</div>`:''}</span>
-          </div>`).join('')}</div>`
-        :(!loading?'<div class="hint">Live hotel rates appear here once the worker is connected — curated picks await on the itinerary desk.</div>':'')}
+      ${hotelBlock}
       ${attractions.length?`<label class="minihead">Don't miss</label>
         <div class="attrlist">${attractions.slice(0,5).map(a=>`<div>· ${a}</div>`).join('')}</div>`:''}
       <div class="row" style="margin-top:12px">
@@ -635,21 +642,35 @@ function stepCityTour(i){
     qcard.querySelectorAll('[data-h]').forEach(o=>o.onclick=()=>{
       const h=hotels[+o.dataset.h];
       trip.hotelPicks[s.city]=trip.hotelPicks[s.city]===h.name?undefined:h.name;
-      render(hotels,false);
+      render(hotels,'ok');
     });
+    const rt=$('#rt'); if(rt) rt.onclick=()=>stepCityTour(i);
     $('#nx').onclick=()=>stepCityTour(i+1);
     $('#bk').onclick=()=>{ if(i===0){ gMarkers.selectAll('.hotelpin').remove(); hideDetailMap(); clearDots(); zoomToFeature(trip.dest.country).then(()=>stepItinerary()); } else stepCityTour(i-1); };
     $('#skip').onclick=()=>stepCityTour(trip.stops.length);
   };
-  render(null,true);
-  const streets=showDetailMap(container,{ lat:s.lat, lon:s.lon, pins:[], nights:s.nights });
-  liveHotels({ custom:true, name:s.city.replace(/\s*\(.+\)$/,''), lat:s.lat, lon:s.lon }, ci, co).then(list=>{
-    if(seq!==tourSeq) return;
-    const hotels=(list??[]).filter(h=>h.price&&h.name).sort((a,b)=>a.price-b.price).slice(0,6);
-    render(hotels,false);
-    const fallbackPins=()=>{ if(seq===tourSeq) drawHotelPins(hotels,s.nights); };
-    if(!showDetailMap(container,{ lat:s.lat, lon:s.lon, pins:hotels, nights:s.nights, onFail:fallbackPins })) fallbackPins();
-  });
+  render(null, liveMode()?'loading':'off');
+  showDetailMap(container,{ lat:s.lat, lon:s.lon, pins:[], nights:s.nights });
+  if(liveMode()){
+    // Hard ceiling so the card can never sit on 'loading' forever, whatever
+    // the network stack does underneath.
+    const hardStop=new Promise(res=>setTimeout(()=>res({data:null,error:'no response after 15s'}),15000));
+    Promise.race([
+      liveHotelsDetailed({ custom:true, name:s.city.replace(/\s*\(.+\)$/,''), lat:s.lat, lon:s.lon }, ci, co),
+      hardStop,
+    ]).then(({data,error})=>{
+      if(seq!==tourSeq) return;
+      try{
+        if(error==='not-configured') return render(null,'off');
+        if(error) return render(null,'error',error);
+        const hotels=(data??[]).filter(h=>h.price&&h.name).sort((a,b)=>a.price-b.price).slice(0,6);
+        if(!hotels.length) return render(null,'empty');
+        render(hotels,'ok');
+        const fallbackPins=()=>{ if(seq===tourSeq) drawHotelPins(hotels,s.nights); };
+        if(!showDetailMap(container,{ lat:s.lat, lon:s.lon, pins:hotels, nights:s.nights, onFail:fallbackPins })) fallbackPins();
+      }catch(e){ render(null,'error','display error: '+(e?.message??e)); }
+    });
+  }
 }
 
 /* ---- 7. end city (fly home from) ---- */
