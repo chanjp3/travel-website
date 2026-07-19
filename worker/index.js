@@ -9,8 +9,9 @@
  *       → Seats.aero cached award availability for that exact route+date
  *
  * Providers (checked in this order per endpoint):
- *   TRAVELPAYOUTS_TOKEN — free tier. Aviasales cached market fares
- *     (economy) + Hotellook hotel prices. travelpayouts.com → API token.
+ *   TRAVELPAYOUTS_TOKEN — free tier. Aviasales cached market fares (economy).
+ *   LITEAPI_KEY — hotel rates (liteapi.travel; free sandbox + prod keys).
+ *     (Hotellook was discontinued by Travelpayouts in Oct 2025.)
  *   AMADEUS_KEY/SECRET — Enterprise API portal only since 2026-07-17
  *     (self-service portal decommissioned); branch kept for those keys.
  *   SEATSAERO_KEY — Seats.aero Partner API for live award space.
@@ -86,30 +87,61 @@ async function tpFlights(env, q) {
   });
 }
 
-/** Hotellook: resolve any place name (cities or small towns) → cached prices. */
-async function tpHotels(env, q) {
-  const lu = new URL("https://engine.hotellook.com/api/v2/lookup.json");
-  lu.searchParams.set("query", q.name ?? q.cityCode ?? `${q.lat},${q.lon}`);
-  lu.searchParams.set("lang", "en");
-  lu.searchParams.set("lookFor", "city");
-  lu.searchParams.set("limit", "1");
-  const found = await tpGet(lu.toString(), env.TRAVELPAYOUTS_TOKEN);
-  const loc = found.results?.locations?.[0];
-  if (!loc) return [];
-  const cu = new URL("https://engine.hotellook.com/api/v2/cache.json");
-  cu.searchParams.set("locationId", loc.id);
-  cu.searchParams.set("checkIn", q.checkIn);
-  cu.searchParams.set("checkOut", q.checkOut);
-  cu.searchParams.set("currency", "usd");
-  cu.searchParams.set("limit", "12");
-  const rows = await tpGet(cu.toString(), env.TRAVELPAYOUTS_TOKEN);
-  return (Array.isArray(rows) ? rows : []).map((h) => ({
-    name: h.hotelName ?? h.hotelName_en ?? h.name,
-    id: h.hotelId,
-    price: +h.priceAvg || +h.priceFrom || null, // total for the stay
-    stars: h.stars ?? null,
-    lat: h.location?.geo?.lat ?? null, lon: h.location?.geo?.lon ?? null,
-  })).filter((h) => h.name && h.price);
+/** LiteAPI (liteapi.travel): geo hotel list → real-time rates for the stay.
+ *  Hotellook was discontinued by Travelpayouts in Oct 2025; LiteAPI's free
+ *  sandbox/prod keys replace it. Output shape is unchanged for the app. */
+async function liteGet(url, key) {
+  const res = await fetch(url, { headers: { "X-API-Key": key, Accept: "application/json" } });
+  if (!res.ok) throw new Error(`LiteAPI failed: ${res.status}`);
+  return res.json();
+}
+async function liteHotels(env, q) {
+  const key = env.LITEAPI_KEY;
+  const lu = new URL("https://api.liteapi.travel/v3.0/data/hotels");
+  if (q.lat && q.lon) {
+    lu.searchParams.set("latitude", q.lat);
+    lu.searchParams.set("longitude", q.lon);
+    lu.searchParams.set("distance", "15000");
+  } else if (q.name) {
+    lu.searchParams.set("cityName", q.name);
+  }
+  lu.searchParams.set("limit", "20");
+  const found = await liteGet(lu.toString(), key);
+  const list = found.data ?? [];
+  if (!list.length) return [];
+  const meta = new Map(list.map((h) => [String(h.id), h]));
+
+  const res = await fetch("https://api.liteapi.travel/v3.0/hotels/rates", {
+    method: "POST",
+    headers: { "X-API-Key": key, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      hotelIds: list.map((h) => String(h.id)).slice(0, 20),
+      checkin: q.checkIn, checkout: q.checkOut,
+      occupancies: [{ adults: 2 }],
+      currency: "USD", guestNationality: "US",
+    }),
+  });
+  if (!res.ok) throw new Error(`LiteAPI rates failed: ${res.status}`);
+  const rates = await res.json();
+  const out = [];
+  for (const r of rates.data ?? []) {
+    let min = null;
+    for (const rt of r.roomTypes ?? []) {
+      for (const rate of rt.rates ?? []) {
+        const amt = rate?.retailRate?.total?.[0]?.amount;
+        if (amt != null && (min == null || amt < min)) min = amt;
+      }
+    }
+    const h = meta.get(String(r.hotelId));
+    if (h && min != null) {
+      out.push({
+        name: h.name, id: h.id, price: +min,
+        stars: h.stars ?? h.rating ?? null,
+        lat: h.latitude ?? null, lon: h.longitude ?? null,
+      });
+    }
+  }
+  return out.sort((a, b) => a.price - b.price).slice(0, 12);
 }
 
 export default {
@@ -148,7 +180,10 @@ export default {
         })) ?? []);
       }
       if (url.pathname === "/api/hotels") {
-        if (!env.AMADEUS_KEY && env.TRAVELPAYOUTS_TOKEN) return json(await tpHotels(env, q));
+        if (!env.AMADEUS_KEY) {
+          if (env.LITEAPI_KEY) return json(await liteHotels(env, q));
+          return json({ error: "hotel provider not configured — set LITEAPI_KEY (free key at liteapi.travel)" }, 501);
+        }
         // Small towns arrive as lat/lon (no IATA city code) — search by geocode
         // with no star filter; cities use the code with a 4–5★ shortlist.
         const list = q.lat && q.lon

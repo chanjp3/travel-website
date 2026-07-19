@@ -56,7 +56,7 @@ const SpineNode = ({ label, sub, main, mode }) => (
       {main ? <TrainFront size={18} /> : <Plane size={14} />}
     </div>
     <div className="text-xs font-bold mt-1" style={{ color: T.ink }}>{label}</div>
-    {sub && <div className="text-xs" style={{ color: T.inkSoft, fontFamily: "'Zen Old Mincho', serif" }}>{sub}</div>}
+    {sub && <div className="text-xs" style={{ color: T.inkSoft, fontFamily: "'Jost', 'Century Gothic', sans-serif" }}>{sub}</div>}
   </div>
 );
 

@@ -54,14 +54,37 @@ function endGateway(cityId, originCity) {
   return { gw: c.air, min: 45, usd: 15 }; // own airport, nominal local transfer
 }
 
-export function scoreRoutes(cityIds, wCost, originId) {
+export function scoreRoutes(cityIds, wCost, originId, { endAt, startAt, inGw: gwIn, outGw: gwOut } = {}) {
   const wTime = 1 - wCost;
   const origin = cityById[originId];
-  const perms = permutations(cityIds);
+  // startAt/endAt pin the first/last stop (where you land / where the trip
+  // ends); the orderings in between still compete. Ending where you landed
+  // (land Tokyo → loop → fly home from Tokyo) is one pin, not two: the
+  // forced exit gateway handles the ride back to that airport.
+  let perms = permutations(cityIds);
+  if (startAt && cityIds.includes(startAt) && cityIds.length > 1) {
+    perms = perms.filter((p) => p[0] === startAt);
+  }
+  if (endAt && endAt !== startAt && cityIds.includes(endAt) && cityIds.length > 1) {
+    perms = perms.filter((p) => p[p.length - 1] === endAt);
+  }
+  if (!perms.length) perms = permutations(cityIds); // never zero routes
+
+  // Explicitly chosen gateway airports ({iata, lat, lon}) override the
+  // access-matrix choice; ground access is estimated from real distance.
+  const forceGw = (base, cityId, gw) => {
+    if (!gw?.iata || base.gw === gw.iata) return base;
+    const c = cityById[cityId];
+    const jp = packById("japan");
+    const acc = c.pack === "japan" ? jp.access[cityId]?.[gw.iata] : null;
+    if (acc) return { gw: gw.iata, min: acc.min, usd: acc.yen / 150, yen: acc.yen };
+    const d = gw.lat != null ? km(c, gw) : 80;
+    return { gw: gw.iata, min: Math.round(35 + (d / 70) * 60), usd: Math.round(6 + d * 0.18) };
+  };
 
   const scored = perms.map((order) => {
-    const inGw = endGateway(order[0], origin);
-    const outGw = endGateway(order[order.length - 1], origin);
+    const inGw = forceGw(endGateway(order[0], origin), order[0], gwIn);
+    const outGw = forceGw(endGateway(order[order.length - 1], origin), order[order.length - 1], gwOut);
     let groundMin = 0, groundUsd = 0, groundYen = 0;
     const legs = [];
     for (let i = 0; i < order.length - 1; i++) {
@@ -97,7 +120,7 @@ export function scoreRoutes(cityIds, wCost, originId) {
   for (const s of scored) {
     const key = [...s.order].join(">") + s.inGw.gw + s.outGw.gw;
     const mirror = [...s.order].reverse().join(">") + s.outGw.gw + s.inGw.gw;
-    if (seen.has(mirror)) continue;
+    if (!endAt && !startAt && seen.has(mirror)) continue; // pinned ends: mirrors aren't equivalent
     seen.add(key); top.push(s);
     if (top.length === 3) break;
   }

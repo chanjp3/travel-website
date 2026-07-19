@@ -162,7 +162,7 @@ export function mergeLiveHotels(base, offers, nights) {
       return {
         name: titleCase(o.name),
         program: brand?.program ?? "cash", pid: brand?.pid ?? null,
-        pts, cash: nightly, view: null, quality: null, live: true,
+        pts, cash: nightly, view: null, quality: null, stars: o.stars ?? null, live: true,
         note: brand
           ? `Live rate · award estimate at typical ${brand.program} value`
           : "Live rate for your dates",
