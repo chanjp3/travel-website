@@ -654,7 +654,7 @@ function stepCityTour(i){
   if(liveMode()){
     // Hard ceiling so the card can never sit on 'loading' forever, whatever
     // the network stack does underneath.
-    const hardStop=new Promise(res=>setTimeout(()=>res({data:null,error:'no response after 15s'}),15000));
+    const hardStop=new Promise(res=>setTimeout(()=>res({data:null,error:'no response after 25s'}),25000));
     Promise.race([
       liveHotelsDetailed({ custom:true, name:s.city.replace(/\s*\(.+\)$/,''), lat:s.lat, lon:s.lon }, ci, co),
       hardStop,

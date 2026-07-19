@@ -105,7 +105,7 @@ async function liteHotels(env, q) {
   } else if (q.name) {
     lu.searchParams.set("cityName", q.name);
   }
-  lu.searchParams.set("limit", "20");
+  lu.searchParams.set("limit", "12");
   const found = await liteGet(lu.toString(), key);
   const list = found.data ?? [];
   if (!list.length) return [];
@@ -115,7 +115,7 @@ async function liteHotels(env, q) {
     method: "POST",
     headers: { "X-API-Key": key, "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({
-      hotelIds: list.map((h) => String(h.id)).slice(0, 20),
+      hotelIds: list.map((h) => String(h.id)).slice(0, 12),
       checkin: q.checkIn, checkout: q.checkOut,
       occupancies: [{ adults: 2 }],
       currency: "USD", guestNationality: "US",
