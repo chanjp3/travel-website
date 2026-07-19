@@ -54,19 +54,33 @@ function endGateway(cityId, originCity) {
   return { gw: c.air, min: 45, usd: 15 }; // own airport, nominal local transfer
 }
 
-export function scoreRoutes(cityIds, wCost, originId, { endAt } = {}) {
+export function scoreRoutes(cityIds, wCost, originId, { endAt, startAt, inGwIata, outGwIata } = {}) {
   const wTime = 1 - wCost;
   const origin = cityById[originId];
-  // endAt pins the final stop (the "where do you want to end?" choice);
-  // all orderings still compete for everything before it.
+  // startAt/endAt pin the first/last stop (where you land / where the trip
+  // ends); the orderings in between still compete.
   let perms = permutations(cityIds);
+  if (startAt && cityIds.includes(startAt) && cityIds.length > 1) {
+    perms = perms.filter((p) => p[0] === startAt);
+  }
   if (endAt && cityIds.includes(endAt) && cityIds.length > 1) {
     perms = perms.filter((p) => p[p.length - 1] === endAt);
   }
 
+  // Explicitly chosen gateway airports override the access-matrix choice.
+  const forceGw = (base, cityId, iata) => {
+    if (!iata || base.gw === iata) return base;
+    const c = cityById[cityId];
+    const jp = packById("japan");
+    const acc = c.pack === "japan" ? jp.access[cityId]?.[iata] : null;
+    return acc
+      ? { gw: iata, min: acc.min, usd: acc.yen / 150, yen: acc.yen }
+      : { gw: iata, min: 60, usd: 20 };
+  };
+
   const scored = perms.map((order) => {
-    const inGw = endGateway(order[0], origin);
-    const outGw = endGateway(order[order.length - 1], origin);
+    const inGw = forceGw(endGateway(order[0], origin), order[0], inGwIata);
+    const outGw = forceGw(endGateway(order[order.length - 1], origin), order[order.length - 1], outGwIata);
     let groundMin = 0, groundUsd = 0, groundYen = 0;
     const legs = [];
     for (let i = 0; i < order.length - 1; i++) {
@@ -102,7 +116,7 @@ export function scoreRoutes(cityIds, wCost, originId, { endAt } = {}) {
   for (const s of scored) {
     const key = [...s.order].join(">") + s.inGw.gw + s.outGw.gw;
     const mirror = [...s.order].reverse().join(">") + s.outGw.gw + s.inGw.gw;
-    if (!endAt && seen.has(mirror)) continue; // pinned end: mirrors aren't equivalent
+    if (!endAt && !startAt && seen.has(mirror)) continue; // pinned ends: mirrors aren't equivalent
     seen.add(key); top.push(s);
     if (top.length === 3) break;
   }

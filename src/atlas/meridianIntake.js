@@ -55,8 +55,26 @@ const byCC = d3.group(airports, d=>d.cc);
 function citiesOf(cc){
   const list = byCC.get(cc)||[];
   const m = d3.group(list, d=>d.city+'|'+d.region);
+  // Merge same-named groups whose centroids sit within metro range: HND
+  // (Tokyo pref.) and NRT (Chiba) are one Tokyo; Portland OR/ME stay two.
+  const byName = d3.group([...m.values()], g=>g[0].city);
+  const merged = [];
+  for(const [, gs] of byName){
+    const pool=[...gs];
+    while(pool.length){
+      const clump=[...pool.shift()];
+      for(let i=pool.length-1;i>=0;i--){
+        const g=pool[i];
+        const d=haversine(
+          {lat:d3.mean(clump,x=>x.lat),lon:d3.mean(clump,x=>x.lon)},
+          {lat:d3.mean(g,x=>x.lat),lon:d3.mean(g,x=>x.lon)});
+        if(d<150){ clump.push(...g); pool.splice(i,1); }
+      }
+      merged.push(clump);
+    }
+  }
   const out = [];
-  for(const [key, aps] of m){
+  for(const aps of merged){
     const city = aps[0].city;
     if(!city) continue;
     out.push({city, cc, region:aps[0].region, lat:d3.mean(aps,d=>d.lat), lon:d3.mean(aps,d=>d.lon),
@@ -260,10 +278,10 @@ function drawArcs(legs, animate=true, ghost=false){
 const trip = {
   date:null,
   origin:{country:null,city:null,airport:null},
-  dest:{country:null,gateway:null},
+  dest:{country:null,gwCity:null,airport:null},
   nights:0,
   stops:[],           // {city,lat,lon,nights,airports}
-  endCity:null,       // departure city for the flight home
+  endCity:null, endAirport:null,
   home:null,          // airport flying back to
   legModes:[]
 };
@@ -394,17 +412,71 @@ function stepDestCountry(){
     setCountryMode(false);
     cSel.classed('selected',d=>d===f||d===trip.origin.country);
     hideCard();
-    zoomToFeature(f).then(()=>stepNights());
+    zoomToFeature(f).then(()=>stepArrivalCity());
   };
   clickHandler=pick;
 }
 
+/* ---- 4b. arrival city — the trip starts here ---- */
+function stepArrivalCity(){
+  ticket(null,null,'to');
+  const cc=a2Of(trip.dest.country);
+  const cities=citiesOf(cc);
+  if(!cities.length){ toast('No scheduled airports found there — pick another country'); return stepDestCountry(); }
+  const items=cities.map(c=>({c,_s:c.city.toLowerCase()}));
+  showCard(`
+    <div class="eyebrow">Leg 02 — Destination · ${nameOf(trip.dest.country)}</div>
+    <div class="question">Which city do you land in?</div>
+    <div class="hint">Your trip starts here — the outbound flight arrives at this city's airport.</div>
+    <div class="field"><label>City</label>
+      <input type="text" id="inCityA" placeholder="Search cities…" autocomplete="off">
+      <div class="suggest" id="sgCityA"></div>
+    </div>
+    <div class="optlist" id="cityListA">${cities.slice(0,8).map((c,i)=>`
+      <div class="opt" data-i="${i}"><span class="dot${c.large?'':' med'}"></span>
+        <span class="nm">${c.city}<div class="sub">${c.n} airport${c.n>1?'s':''}</div></span></div>`).join('')}
+    </div>
+    <button class="backlink" id="bk">← change country</button>`);
+  function pick(c){ trip.dest.gwCity=c; hideCard(); clearDots();
+    zoomToPoint([c.lon,c.lat], c.airports.length>1?18:26).then(()=>stepArrivalAirport()); }
+  drawCityDots(cities,pick);
+  attachTypeahead($('#inCityA'),$('#sgCityA'),items,it=>`<span>${it.c.city}</span>`,it=>pick(it.c));
+  $('#cityListA').querySelectorAll('.opt').forEach(o=>o.onclick=()=>pick(cities[+o.dataset.i]));
+  $('#bk').onclick=()=>stepDestCountry();
+  clickHandler=null;
+}
+
+/* ---- 4c. arrival airport ---- */
+function stepArrivalAirport(){
+  const c=trip.dest.gwCity;
+  function pick(a){
+    trip.dest.airport=a;
+    ticket('to',`${c.city} <span class="iata">${a.iata}</span>`);
+    hideCard(); clearDots();
+    toast(`Landing locked: ${a.iata} — ${c.city}`);
+    zoomToFeature(trip.dest.country).then(()=>stepNights());
+  }
+  if(c.airports.length===1) return pick(c.airports[0]);
+  drawCityDots(c.airports.map(a=>({city:a.iata+' · '+shortName(a),lat:a.lat,lon:a.lon,large:a.large,_ap:a})),d=>pick(d._ap),12);
+  showCard(`
+    <div class="eyebrow">Leg 02 — Destination · ${c.city}</div>
+    <div class="question">Choose your arrival airport</div>
+    <div class="optlist">${c.airports.map((a,i)=>`
+      <div class="opt" data-i="${i}"><span class="iata">${a.iata}</span>
+        <span class="nm">${a.name}<div class="sub">${a.large?'Major international':'Regional'}</div></span></div>`).join('')}
+    </div>
+    <button class="backlink" id="bk">← change city</button>`);
+  qcard.querySelectorAll('.opt').forEach(o=>o.onclick=()=>pick(c.airports[+o.dataset.i]));
+  $('#bk').onclick=()=>{ zoomToFeature(trip.dest.country).then(()=>stepArrivalCity()); };
+}
+
 /* ---- 5. nights ---- */
 function stepNights(){
-  ticket('to',nameOf(trip.dest.country),'nights');
+  ticket(null,null,'nights');
   showCard(`
     <div class="eyebrow">Leg 02 — ${nameOf(trip.dest.country)}</div>
     <div class="question">How many nights?</div>
+    <div class="hint">You land in ${trip.dest.gwCity.city} (${trip.dest.airport.iata}) &mdash; add it as a stop next if you are staying.</div>
     <div class="field"><label>Total nights in ${nameOf(trip.dest.country)}</label>
       <input type="number" id="inNights" min="1" max="60" value="${trip.nights||7}">
     </div>
@@ -522,9 +594,30 @@ function stepEndCity(){
     <button class="backlink" id="bk">← adjust stops</button>`);
   qcard.querySelectorAll('.opt').forEach(o=>o.onclick=()=>{
     trip.endCity=trip.stops[+o.dataset.i];
-    hideCard(); stepHome();
+    hideCard(); stepEndAirport();
   });
   $('#bk').onclick=()=>stepItinerary();
+}
+
+/* ---- 7b. departure airport for the flight home ---- */
+function stepEndAirport(){
+  const sCity=trip.endCity;
+  const aps=sCity.airports&&sCity.airports.length?sCity.airports:null;
+  function pick(a){ trip.endAirport=a; if(a) toast(`Return locked: departing ${a.iata} — ${sCity.city}`); hideCard(); clearDots(); stepHome(); }
+  if(!aps){ trip.endAirport=null; return stepHome(); }
+  if(aps.length===1) return pick(aps[0]);
+  drawCityDots(aps.map(a=>({city:a.iata+' · '+shortName(a),lat:a.lat,lon:a.lon,large:a.large,_ap:a})),d=>pick(d._ap),12);
+  showCard(`
+    <div class="eyebrow">Leg 03 — The way home</div>
+    <div class="question">Fly out of which airport?</div>
+    <div class="hint">${sCity.city} — departure for the flight home.</div>
+    <div class="optlist">${aps.map((a,i)=>`
+      <div class="opt" data-i="${i}"><span class="iata">${a.iata}</span>
+        <span class="nm">${a.name}<div class="sub">${a.large?'Major international':'Regional'}</div></span></div>`).join('')}
+    </div>
+    <button class="backlink" id="bk">← change end city</button>`);
+  qcard.querySelectorAll('.opt').forEach(o=>o.onclick=()=>pick(aps[+o.dataset.i]));
+  $('#bk').onclick=()=>stepEndCity();
 }
 
 /* ---- 8. fly home to ---- */
@@ -547,7 +640,7 @@ function stepHome(){
     it=>`<span>${it.a.city} — ${shortName(it.a)}</span><span class="code">${it.a.iata}</span>`,
     it=>pick(it.a));
   $('#optHome').onclick=()=>pick(o.airport);
-  $('#bk').onclick=()=>stepEndCity();
+  $('#bk').onclick=()=>stepEndAirport();
   const pick=a=>{
     trip.home=a;
     ticket('return',`${a.city} <span class="iata">${a.iata}</span>`);
@@ -560,11 +653,13 @@ function stepHome(){
 function buildLegs(){
   const o=trip.origin, first=trip.stops[0];
   const legs=[];
+  const arr=trip.dest.airport;
   legs.push({a:{lat:o.airport.lat,lon:o.airport.lon,name:o.city.city+' '+o.airport.iata},
-             b:{lat:first.lat,lon:first.lon,name:first.city}, kind:'intl'});
+             b:{lat:arr?.lat??first.lat,lon:arr?.lon??first.lon,name:arr?`${trip.dest.gwCity.city} ${arr.iata}`:first.city}, kind:'intl'});
   for(let i=0;i<trip.stops.length-1;i++)
     legs.push({a:{...trip.stops[i],name:trip.stops[i].city},b:{...trip.stops[i+1],name:trip.stops[i+1].city},kind:'inner'});
-  legs.push({a:{lat:trip.endCity.lat,lon:trip.endCity.lon,name:trip.endCity.city},
+  const dep=trip.endAirport;
+  legs.push({a:{lat:dep?.lat??trip.endCity.lat,lon:dep?.lon??trip.endCity.lon,name:dep?`${trip.endCity.city} ${dep.iata}`:trip.endCity.city},
              b:{lat:trip.home.lat,lon:trip.home.lon,name:trip.home.city+' '+trip.home.iata},kind:'intl'});
   legs.forEach(l=>l.km=Math.round(haversine(l.a,l.b)));
   return legs;
@@ -603,6 +698,9 @@ function stepSummary(){
         originCity: { name: trip.origin.city.city, lat: trip.origin.city.lat, lon: trip.origin.city.lon },
         originAirport: { iata: trip.origin.airport.iata, name: trip.origin.airport.name, lat: trip.origin.airport.lat, lon: trip.origin.airport.lon },
         destCountry: nameOf(trip.dest.country),
+        arrivalCity: { name: trip.dest.gwCity.city, lat: trip.dest.gwCity.lat, lon: trip.dest.gwCity.lon },
+        arrivalAirport: { iata: trip.dest.airport.iata, name: trip.dest.airport.name, lat: trip.dest.airport.lat, lon: trip.dest.airport.lon },
+        endAirport: trip.endAirport ? { iata: trip.endAirport.iata, name: trip.endAirport.name } : null,
         stops: trip.stops.map(s=>({ name: s.city, lat: s.lat, lon: s.lon, nights: s.nights, iata: s.airports?.[0]?.iata ?? null })),
         endCity: trip.endCity.city,
         homeAirport: { iata: trip.home.iata, name: trip.home.name, city: trip.home.city, lat: trip.home.lat, lon: trip.home.lon },
@@ -611,7 +709,7 @@ function stepSummary(){
     $('#editBtn').onclick=()=>{ hideCard(); gArcs.selectAll('*').remove();
       gMarkers.selectAll('.homebadge').remove(); zoomToFeature(trip.dest.country).then(()=>stepItinerary()); };
     $('#restartBtn').onclick=()=>{ hideCard();
-      Object.assign(trip,{date:null,origin:{country:null,city:null,airport:null},dest:{country:null},nights:0,stops:[],endCity:null,home:null,legModes:[]});
+      Object.assign(trip,{date:null,origin:{country:null,city:null,airport:null},dest:{country:null,gwCity:null,airport:null},nights:0,stops:[],endCity:null,endAirport:null,home:null,legModes:[]});
       container.querySelectorAll('.tseg').forEach(s=>s.classList.remove('done'));
       ['from','date','to','nights','stops','return'].forEach(k=>{ const el=$('#t-'+k); if(el) el.textContent='———'; });
       stepOriginCountry(); };

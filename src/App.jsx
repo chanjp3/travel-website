@@ -58,13 +58,16 @@ export default function App() {
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [originAir, setOriginAir] = useState(null);  // departure airport from the intake
   const [homeAir, setHomeAir] = useState(null);      // fly-home airport from the intake
+  const [startAt, setStartAt] = useState(null);      // landing city — the trip starts here
+  const [inGwIata, setInGwIata] = useState(null);    // chosen arrival airport
+  const [outGwIata, setOutGwIata] = useState(null);  // chosen return-departure airport
 
   const origin = cityById[originId];
   const depAir = originAir ?? origin.air;
   const retAir = homeAir ?? origin.air;
   const results = useMemo(
-    () => (destIds.length >= 1 ? scoreRoutes(destIds, wCost, originId, { endAt }) : null),
-    [destIds, wCost, originId, endAt]
+    () => (destIds.length >= 1 ? scoreRoutes(destIds, wCost, originId, { endAt, startAt, inGwIata, outGwIata }) : null),
+    [destIds, wCost, originId, endAt, startAt, inGwIata, outGwIata]
   );
   const route = results?.top[Math.min(routeIdx, (results?.top.length ?? 1) - 1)];
 
@@ -191,6 +194,13 @@ export default function App() {
     setNights((old) => ({ ...old, ...nn }));
     const endIdx = t.stops.findIndex((st) => st.name === t.endCity);
     setEndAt(ids[endIdx >= 0 ? endIdx : ids.length - 1] ?? null);
+    // Pin the two long-haul flights exactly as chosen on the map:
+    // land at the arrival airport (trip starts in that city), depart home
+    // from the end city's chosen airport.
+    const startIdx = t.stops.findIndex((st) => st.name === t.arrivalCity?.name);
+    setStartAt(startIdx >= 0 ? ids[startIdx] : null);
+    setInGwIata(t.arrivalAirport?.iata ?? null);
+    setOutGwIata(t.endAirport?.iata ?? null);
     setRouteIdx(0); setFlightSel({}); setHotelPicks({}); setHotelPay({});
     setStep(1);
   };
