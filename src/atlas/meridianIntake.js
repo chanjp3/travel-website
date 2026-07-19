@@ -11,6 +11,7 @@ import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
+import { geoSearch } from "../api/client.js";
 import "./meridian.css";
 
 const SCAFFOLD = `
@@ -159,7 +160,14 @@ function haversine(a,b){
   const h=Math.sin(dLat/2)**2+Math.cos(rad(a.lat))*Math.cos(rad(b.lat))*Math.sin(dLon/2)**2;
   return 2*R*Math.asin(Math.sqrt(h));
 }
-function showCard(html){ qcard.innerHTML=html; qcard.classList.remove('show'); requestAnimationFrame(()=>requestAnimationFrame(()=>qcard.classList.add('show'))); }
+function showCard(html){
+  qcard.innerHTML='<button class="qmin" id="qmin" aria-label="Minimize card" title="Minimize — use the map">—</button>'+html;
+  qcard.classList.remove('show','min');
+  requestAnimationFrame(()=>requestAnimationFrame(()=>qcard.classList.add('show')));
+  const mb=$('#qmin');
+  mb.onclick=(e)=>{ e.stopPropagation(); qcard.classList.toggle('min'); mb.textContent=qcard.classList.contains('min')?'+':'—'; };
+  qcard.onclick=()=>{ if(qcard.classList.contains('min')){ qcard.classList.remove('min'); mb.textContent='—'; } };
+}
 function hideCard(){ qcard.classList.remove('show'); }
 function ticket(seg,val,active){
   const el = $('#t-'+seg);
@@ -435,6 +443,10 @@ function stepItinerary(){
           <span class="nm">${s.city}</span>
           <span class="stp"><button data-a="minus" data-i="${i}">−</button><span class="n">${s.nights}</span><button data-a="plus" data-i="${i}">+</button><button data-a="x" data-i="${i}" title="remove">×</button></span></div>`;
       }).join('')||'<div class="hint">Nothing yet — tap suggested cities below or dots on the map. Each stop starts at one night; use + / − to adjust.</div>'}</div>
+      <div class="field"><label>Search a city or town</label>
+        <input type="text" id="inStop" placeholder="Type any city — or a smaller town…" autocomplete="off">
+        <div class="suggest" id="sgStop"></div>
+      </div>
       <label style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft)">Suggested cities</label>
       <div class="optlist" style="max-height:170px" id="sugg">${cities.filter(c=>!trip.stops.find(s=>s.city===c.city)).slice(0,10).map((c,i)=>`
         <div class="opt" data-i="${i}"><span class="dot${c.large?'':' med'}"></span><span class="nm">${c.city}</span></div>`).join('')}
@@ -455,6 +467,30 @@ function stepItinerary(){
     });
     $('#go').onclick=()=>{ if(d3.sum(trip.stops,s=>s.nights)!==trip.nights)return; hideCard(); stepEndCity(); };
     $('#bk').onclick=()=>{ clearDots(); gMarkers.selectAll('.stopbadge').remove(); stepNights(); };
+    // free-text search: every airport city in the country, plus geocoded towns
+    const inp=$('#inStop'), sg=$('#sgStop');
+    let townTimer=null;
+    inp.oninput=()=>{
+      const q=inp.value.trim().toLowerCase();
+      clearTimeout(townTimer);
+      if(!q){ sg.classList.remove('open'); sg.innerHTML=''; return; }
+      const hits=cities.filter(c=>!trip.stops.find(s=>s.city===c.city)&&c.city.toLowerCase().includes(q)).slice(0,8);
+      const draw=(towns=[])=>{
+        sg.innerHTML=hits.map((c,i)=>`<div data-i="${i}"><span>${c.city}</span></div>`).join('')
+          + towns.map((t,i)=>`<div data-t="${i}"><span>${t.name} · ${t.admin1?t.admin1+', ':''}${t.country}</span><span class="code">town</span></div>`).join('');
+        sg.classList.toggle('open', hits.length>0||towns.length>0);
+        sg.querySelectorAll('div[data-i]').forEach(d=>d.onclick=()=>add(hits[+d.dataset.i]));
+        sg.querySelectorAll('div[data-t]').forEach(d=>{
+          const t=towns[+d.dataset.t];
+          d.onclick=()=>add({city:t.name,lat:t.latitude,lon:t.longitude,airports:[]});
+        });
+      };
+      draw();
+      if(q.length>=3) townTimer=setTimeout(async()=>{
+        const towns=(await geoSearch(q)).filter(g=>g.latitude!=null&&!trip.stops.find(s=>s.city===g.name)).slice(0,4);
+        if(inp.value.trim().toLowerCase()===q) draw(towns);
+      },350);
+    };
   };
   const refresh=()=>{ render(); drawStopBadges(trip.stops);
     drawCityDots(citiesOf(cc).filter(c=>!trip.stops.find(s=>s.city===c.city)),add); 
