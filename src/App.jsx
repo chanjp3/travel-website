@@ -17,6 +17,9 @@ import { buildLedger } from "./lib/costs.js";
 import { liveMode, geoSearch, liveFlights, liveAwards, liveHotels } from "./api/client.js";
 import { suggestCities } from "./lib/suggest.js";
 import { HOTEL_GROUPS, brandGroupOf } from "./lib/hotelBrands.js";
+import { bestAlternate } from "./lib/altGateways.js";
+import { serializeTrip, hydrateTrip, tripLocal } from "./lib/tripStore.js";
+import { saveTripCloud, loadTripCloud } from "./api/client.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
 import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels } from "./lib/liveMerge.js";
 import { defaultDepart, buildSchedule, toISO, addDays, fmtDay, fmtShort, dateForDay } from "./lib/dates.js";
@@ -139,6 +142,58 @@ export default function App() {
   const fBack = backLegD?.options.find((f) => f.id === backId);
   const pathOut = fOut?.points ? bestPath(fOut.programId, fOut.points, balances) : null;
   const pathBack = fBack?.points ? bestPath(fBack.programId, fBack.points, balances) : null;
+
+  // Nearby-airport advisor: is there a better-value gateway < ~30 min from
+  // either end's city? (NRT picked but HND prices better, etc.)
+  const [altTips, setAltTips] = useState({});
+  useEffect(() => {
+    if (!liveMode() || !route || step === 0) { setAltTips({}); return; }
+    let on = true;
+    const firstCity = cityById[route.order[0]];
+    const lastCity = cityById[route.order[route.order.length - 1]];
+    (async () => {
+      const [out, back] = await Promise.all([
+        bestAlternate({ dep: depAir, arr: route.inGw.gw, date: departDate, cabin: cabinPref, depCity: origin, arrCity: firstCity }),
+        schedule ? bestAlternate({ dep: route.outGw.gw, arr: retAir, date: schedule.returnDate, cabin: cabinPref, depCity: lastCity, arrCity: origin }) : null,
+      ]);
+      if (on) setAltTips({ out, back });
+    })();
+    return () => { on = false; };
+  }, [route?.inGw.gw, route?.outGw.gw, depAir, retAir, departDate, schedule?.returnDate, cabinPref, step]);
+  const applyAlt = (key, tip) => {
+    const gw = { iata: tip.alt.iata, lat: tip.alt.lat, lon: tip.alt.lon };
+    if (key === "out") tip.side === "arr" ? setInGw(gw) : setOriginAir(tip.alt.iata);
+    else tip.side === "dep" ? setOutGw(gw) : setHomeAir(tip.alt.iata);
+    setFlightSel({});
+    setAltTips((t) => ({ ...t, [key]: null }));
+  };
+
+  // ── Trips: autosave, resume, named saves, cloud sync codes ──
+  const [tripsOpen, setTripsOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [codeInput, setCodeInput] = useState("");
+  const [cloud, setCloud] = useState({});
+  const stateBundle = { originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, hotelPrefs, cabinPref, pointsOnly, wCost, balances };
+  useEffect(() => {
+    if (step === 0 || !destIds.length) return;
+    const t = setTimeout(() => tripLocal.autosave(serializeTrip(stateBundle)), 800);
+    return () => clearTimeout(t);
+  }, [step, originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, hotelPrefs, cabinPref, pointsOnly, wCost, balances]);
+  const applyTrip = (data) => {
+    if (!data) return;
+    hydrateTrip(data);
+    setOriginId(data.originId); setDepartDate(data.departDate);
+    setDestIds(data.destIds ?? []); setNights(data.nights ?? {});
+    setStartAt(data.startAt ?? null); setEndAt(data.endAt ?? null);
+    setOriginAir(data.originAir ?? null); setHomeAir(data.homeAir ?? null);
+    setInGw(data.inGw ?? null); setOutGw(data.outGw ?? null);
+    setHotelPicks(data.hotelPicks ?? {});
+    if (data.hotelPrefs) setHotelPrefs((p) => ({ ...p, ...data.hotelPrefs }));
+    setCabinPref(data.cabinPref ?? "Business"); setPointsOnly(data.pointsOnly ?? true); setWCost(data.wCost ?? 0.5);
+    if (data.balances) setBalances(data.balances);
+    setRouteIdx(0); setFlightSel({}); setTripsOpen(false); setStep(1);
+  };
+  const autoSaved = useMemo(() => (tripsOpen ? tripLocal.loadAuto() : null), [tripsOpen]);
 
   const jr = useMemo(() => jrPassAnalysis(route), [route]);
   const days = useMemo(() => (route ? buildDays(route, nights, originId) : []), [route, nights, originId]);
@@ -270,6 +325,13 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setTripsOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
+              style={{ border: `1px solid ${T.mist}`, color: T.ink, background: T.card }}
+            >
+              <MapPin size={13} style={{ color: T.flight }} /> Trips
+            </button>
+            <button
               onClick={() => setPrefsOpen(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
               style={{ border: `1px solid ${T.mist}`, color: T.ink, background: T.card }}
@@ -304,6 +366,15 @@ export default function App() {
       </header>
 
       <MeridianIntake hidden={step !== 0} initialDate={departDate} onComplete={handlePlottedTrip} />
+      {step === 0 && (
+        <button
+          onClick={() => setTripsOpen(true)}
+          className="fixed top-5 right-5 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold"
+          style={{ zIndex: 46, border: `1px solid rgba(30,43,51,.2)`, color: T.ink, background: "rgba(253,251,245,.94)", boxShadow: "0 2px 10px rgba(30,43,51,.15)" }}
+        >
+          <MapPin size={13} style={{ color: T.flight }} /> Trips
+        </button>
+      )}
       {step > 0 && (
       <main className="max-w-5xl mx-auto px-4 py-8">
         <div key={step} className="step-in">
@@ -405,6 +476,23 @@ export default function App() {
                         <b>Live fares loaded</b> — real itineraries and prices for this date; ¢/pt values use them.
                         {leg.awardsLive && <> <b>Award space verified via Seats.aero</b> — LIVE AWARD rows are bookable today.</>}
                       </p>
+                    )}
+                    {altTips[key] && (
+                      <button
+                        onClick={() => applyAlt(key, altTips[key])}
+                        className="w-full text-left rounded-xl p-3 mb-2"
+                        style={{ background: T.pineTint, border: `1.5px dashed ${T.pine}` }}
+                      >
+                        <span className="text-xs font-bold block" style={{ color: T.pine }}>
+                          Better value nearby: {altTips[key].alt.iata} · {altTips[key].alt.name.replace(/ International| Airport/g, "")} — ≈{altTips[key].alt.etaMin} min away
+                        </span>
+                        <span className="text-xs" style={{ color: T.inkSoft }}>
+                          {altTips[key].saveCash > 0 && <>fares from {usd(altTips[key].cash)} (save {usd(altTips[key].saveCash)})</>}
+                          {altTips[key].saveCash > 0 && altTips[key].saveMiles >= 5000 && " · "}
+                          {altTips[key].saveMiles >= 5000 && <>awards from {(altTips[key].miles / 1000).toFixed(0)}K ({(altTips[key].saveMiles / 1000).toFixed(0)}K fewer miles)</>}
+                          {" — tap to switch"}
+                        </span>
+                      </button>
                     )}
                     {leg.routing.stops > 0 && !leg.live && (
                       <p className="text-xs mb-2" style={{ color: T.inkSoft }}>
@@ -750,6 +838,93 @@ export default function App() {
           </p>
         </div>
       </footer>
+      )}
+
+      {tripsOpen && (
+        <div className="fixed inset-0 z-50" onClick={() => setTripsOpen(false)}>
+          <div className="absolute inset-0" style={{ background: "rgba(30,43,51,0.35)" }} />
+          <aside
+            onClick={(e) => e.stopPropagation()}
+            className="absolute right-0 top-0 h-full w-[400px] max-w-[92vw] overflow-y-auto p-5 space-y-4 step-in"
+            style={{ background: T.paper, boxShadow: "-16px 0 48px rgba(30,43,51,.25)" }}
+          >
+            <div className="flex items-center justify-between">
+              <h2 style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 600, fontSize: 20 }}>Your trips</h2>
+              <button onClick={() => setTripsOpen(false)} style={{ color: T.inkSoft }}><X size={18} /></button>
+            </div>
+
+            {autoSaved && (
+              <button onClick={() => applyTrip(autoSaved)} className="w-full text-left rounded-xl p-4" style={{ background: T.pineTint, border: `1.5px solid ${T.pine}` }}>
+                <div className="text-sm font-bold" style={{ color: T.pine }}>Continue where you left off</div>
+                <div className="text-xs mt-0.5" style={{ color: T.inkSoft }}>{autoSaved.label} · {fmtDay(autoSaved.departDate)}</div>
+              </button>
+            )}
+
+            <div className="rounded-xl p-4 space-y-2" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+              <span className="text-sm font-bold">Saved on this device</span>
+              {step > 0 && destIds.length > 0 && (
+                <div className="flex gap-2">
+                  <input
+                    value={saveName} onChange={(e) => setSaveName(e.target.value)} placeholder="Name this trip…"
+                    className="flex-1 px-3 py-2 rounded-lg text-sm" style={{ border: `1px solid ${T.mist}`, background: T.paper }}
+                  />
+                  <button
+                    onClick={() => { if (saveName.trim()) { tripLocal.save(saveName.trim(), serializeTrip(stateBundle)); setSaveName(""); } }}
+                    className="px-3 py-2 rounded-lg text-xs font-bold text-white" style={{ background: T.ink }}
+                  >Save</button>
+                </div>
+              )}
+              {tripLocal.list().length === 0 && <p className="text-xs" style={{ color: T.inkSoft }}>No saved trips yet.</p>}
+              {tripLocal.list().map((t) => (
+                <div key={t.name} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2" style={{ background: T.paper, border: `1px solid ${T.mist}` }}>
+                  <button onClick={() => applyTrip(hydrateTrip(t.data))} className="text-left flex-1">
+                    <div className="text-sm font-semibold">{t.name}</div>
+                    <div className="text-xs" style={{ color: T.inkSoft }}>{t.data.label}</div>
+                  </button>
+                  <button onClick={() => { tripLocal.remove(t.name); setSaveName((n) => n); setTripsOpen(false); setTimeout(() => setTripsOpen(true), 0); }} style={{ color: T.inkSoft }}><X size={14} /></button>
+                </div>
+              ))}
+            </div>
+
+            <div className="rounded-xl p-4 space-y-2" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+              <span className="text-sm font-bold">Any device — sync code</span>
+              <p className="text-xs" style={{ color: T.inkSoft }}>
+                Save to the cloud and get a short code; enter it on any device to pick the trip back up. Codes last 90 days. (Full account sign-in is on the roadmap.)
+              </p>
+              {step > 0 && destIds.length > 0 && (
+                <button
+                  onClick={async () => {
+                    setCloud({ busy: true });
+                    const r = await saveTripCloud(serializeTrip(stateBundle));
+                    setCloud(r.code ? { code: r.code } : { err: r.error });
+                  }}
+                  disabled={cloud.busy}
+                  className="w-full py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-40" style={{ background: T.flight }}
+                >{cloud.busy ? "Saving…" : "Save to cloud"}</button>
+              )}
+              {cloud.code && (
+                <p className="text-sm font-bold text-center py-1" style={{ fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.2em", color: T.pine }}>{cloud.code}</p>
+              )}
+              {cloud.err && <p className="text-xs" style={{ color: T.flight }}>{cloud.err}</p>}
+              <div className="flex gap-2">
+                <input
+                  value={codeInput} onChange={(e) => setCodeInput(e.target.value.toUpperCase())} placeholder="Enter a code…"
+                  className="flex-1 px-3 py-2 rounded-lg text-sm" style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'IBM Plex Mono', monospace" }}
+                />
+                <button
+                  onClick={async () => {
+                    if (!codeInput.trim()) return;
+                    setCloud({ busy: true });
+                    const { data, error } = await loadTripCloud(codeInput.trim());
+                    if (error) setCloud({ err: error });
+                    else { setCloud({}); applyTrip(hydrateTrip(data)); }
+                  }}
+                  className="px-3 py-2 rounded-lg text-xs font-bold text-white" style={{ background: T.ink }}
+                >Load</button>
+              </div>
+            </div>
+          </aside>
+        </div>
       )}
 
       {prefsOpen && (
