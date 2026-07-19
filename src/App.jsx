@@ -16,6 +16,7 @@ import { bestPath, fundingPaths, describePath } from "./lib/funding.js";
 import { buildLedger } from "./lib/costs.js";
 import { liveMode, geoSearch, liveFlights, liveAwards, liveHotels } from "./api/client.js";
 import { suggestCities } from "./lib/suggest.js";
+import { HOTEL_GROUPS, brandGroupOf } from "./lib/hotelBrands.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
 import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels } from "./lib/liveMerge.js";
 import { defaultDepart, buildSchedule, toISO, addDays, fmtDay, fmtShort, dateForDay } from "./lib/dates.js";
@@ -112,12 +113,13 @@ export default function App() {
     return pool[0]?.id ?? leg.options[0]?.id ?? null;
   };
   // Hotel preferences: minimum stars, minimum quality rating, nightly budget.
-  const [hotelPrefs, setHotelPrefs] = useState({ stars: 0, rating: 0, budget: 0 });
+  const [hotelPrefs, setHotelPrefs] = useState({ stars: 0, rating: 0, budget: 0, group: "" });
   const starsOf = (h) => h.stars ?? (h.quality >= 9 ? 5 : h.quality >= 8.3 ? 4 : h.quality != null ? 3 : null);
   const hotelPasses = (h) => {
     if (hotelPrefs.stars && (starsOf(h) ?? 0) < hotelPrefs.stars) return false;
     if (hotelPrefs.rating && h.quality != null && h.quality < hotelPrefs.rating) return false;
     if (hotelPrefs.budget && h.cash > hotelPrefs.budget) return false;
+    if (hotelPrefs.group && (brandGroupOf(h.name) ?? "other") !== hotelPrefs.group) return false;
     return true;
   };
 
@@ -242,6 +244,7 @@ export default function App() {
     setStartAt(startIdx >= 0 ? ids[startIdx] : null);
     setInGw(t.arrivalAirport ? { iata: t.arrivalAirport.iata, lat: t.arrivalAirport.lat, lon: t.arrivalAirport.lon } : null);
     setOutGw(t.endAirport ? { iata: t.endAirport.iata, lat: t.endAirport.lat, lon: t.endAirport.lon } : null);
+    if (t.hotelPrefs) setHotelPrefs((p) => ({ ...p, ...t.hotelPrefs }));
     const hp = {};
     Object.entries(t.hotelPicks ?? {}).forEach(([cityName, hotelName]) => {
       const idx = t.stops.findIndex((st) => st.name === cityName);
@@ -544,6 +547,7 @@ export default function App() {
                   ["stars", "Stars", [[0, "Any"], [3, "3★+"], [4, "4★+"], [5, "5★"]]],
                   ["rating", "Rating", [[0, "Any"], [8, "8+"], [9, "9+"]]],
                   ["budget", "Nightly budget", [[0, "Any"], [150, "≤$150"], [250, "≤$250"], [400, "≤$400"]]],
+                  ["group", "Group", [["", "Any"], ...HOTEL_GROUPS.map((g) => [g.id, g.label]), ["other", "Indep."]]],
                 ].map(([k, label, opts]) => (
                   <div key={k} className="flex items-center gap-1.5">
                     <span className="text-xs font-bold" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase" }}>{label}</span>

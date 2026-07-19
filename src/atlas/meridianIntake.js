@@ -11,8 +11,9 @@ import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
-import { geoSearch, liveHotels, liveHotelsDetailed, liveMode } from "../api/client.js";
+import { geoSearch, liveHotelsDetailed, liveMode, searchPOI } from "../api/client.js";
 import { showDetailMap, hideDetailMap, destroyDetailMap } from "./detailMap.js";
+import { HOTEL_GROUPS, brandGroupOf } from "../lib/hotelBrands.js";
 import { searchCities } from "../data/world.js";
 import { attractionsFor } from "../lib/trip.js";
 import "./meridian.css";
@@ -582,7 +583,7 @@ function stepItinerary(){
   refresh();
 }
 
-/* ---- 6b. city guide tour: hotels on the map + main attractions ---- */
+/* ---- 6b. city guide tour: live-area hotel search + attraction pins ---- */
 function addDaysISO(iso,n){ const d=new Date(iso+'T12:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
 function attractionListFor(name){
   const clean=name.replace(/\s*\(.+\)$/,'');
@@ -602,35 +603,77 @@ function drawHotelPins(hotels,nights){
   place();
 }
 let tourSeq=0;
+const tourFilters={ stars:0, rating:0, budget:0, group:'' };
+const attrCache={};
 function stepCityTour(i){
   if(i>=trip.stops.length||i<0){ gMarkers.selectAll('.hotelpin').remove(); hideDetailMap(); return stepEndCity(); }
   const seq=++tourSeq;
   const s=trip.stops[i];
+  const cityName=s.city.replace(/\s*\(.+\)$/,'');
   ticket(null,null,'stops');
   clearDots(); gMarkers.selectAll('.stopbadge,.hotelpin').remove(); gArcs.selectAll('*').remove();
   zoomToPoint([s.lon,s.lat], 40);
   let lead=1; for(let j=0;j<i;j++) lead+=trip.stops[j].nights;
   const ci=addDaysISO(trip.date,lead), co=addDaysISO(trip.date,lead+s.nights);
   const attractions=attractionListFor(s.city);
-  const render=(hotels,state,errMsg)=>{
-    // state: 'loading' | 'ok' | 'error' | 'empty' | 'off'
-    const hotelBlock =
+
+  let all=[];                              // latest unfiltered results for this area
+  let state=liveMode()?'loading':'off';    // loading | ok | error | off
+  let searching=false;                     // a pan/zoom re-search in flight
+  let errMsg=null;
+  let attrs=attrCache[cityName]??[];
+
+  const passes=h=>{
+    const nightly=h.price/Math.max(s.nights,1);
+    if(tourFilters.stars&&(h.stars??0)<tourFilters.stars) return false;
+    if(tourFilters.rating&&h.rating!=null&&h.rating<tourFilters.rating) return false;
+    if(tourFilters.budget&&nightly>tourFilters.budget) return false;
+    if(tourFilters.group&&(brandGroupOf(h.name)??'other')!==tourFilters.group) return false;
+    return true;
+  };
+  const filtered=()=>all.filter(passes);
+
+  const pushPins=()=>{
+    const hs=filtered();
+    const ok=showDetailMap(container,{
+      lat:s.lat, lon:s.lon, pins:hs, attrs, nights:s.nights, fly:false,
+      selected:trip.hotelPicks[s.city],
+      onPinClick:(h)=>{ if(seq!==tourSeq) return;
+        trip.hotelPicks[s.city]=trip.hotelPicks[s.city]===h.name?undefined:h.name;
+        render(); pushPins(); },
+      onViewChange:(area)=>{ if(seq===tourSeq&&state!=='off') fetchArea(area); },
+      onFail:()=>{ if(seq===tourSeq) drawHotelPins(hs,s.nights); },
+    });
+    if(!ok) drawHotelPins(hs,s.nights);
+  };
+
+  const render=()=>{
+    const hs=filtered();
+    const hidden=all.length-hs.length;
+    const sel=(id,opts,val)=>`<select id="${id}" class="tsel">${opts.map(([v,l])=>`<option value="${v}"${String(val)===String(v)?' selected':''}>${l}</option>`).join('')}</select>`;
+    const filterRow=`<div class="tfilters">
+      ${sel('fStars',[[0,'★ any'],[3,'3★+'],[4,'4★+'],[5,'5★']],tourFilters.stars)}
+      ${sel('fRating',[[0,'reviews any'],[7,'7+'],[8,'8+'],[9,'9+']],tourFilters.rating)}
+      ${sel('fBudget',[[0,'$/nt any'],[150,'≤$150'],[250,'≤$250'],[400,'≤$400'],[700,'≤$700']],tourFilters.budget)}
+      ${sel('fGroup',[['','group any'],...HOTEL_GROUPS.map(g=>[g.id,g.label]),['other','Independent']],tourFilters.group)}
+    </div>`;
+    const hotelBlock=
       state==='loading' ? '<div class="hint" style="color:var(--route)">Finding live hotel rates…</div>'
       : state==='error' ? `<div class="hint" style="color:var(--route)">Live rates unavailable — ${errMsg}.</div>
           <button class="btn ghost sm" id="rt">Retry</button>`
-      : state==='empty' ? `<div class="hint">No live rates came back for these dates — curated picks await on the itinerary desk.</div>
-          <button class="btn ghost sm" id="rt">Retry</button>`
-      : state==='off' ? '<div class="hint">Connect the worker (VITE_API_BASE) for live hotel rates — curated picks await on the itinerary desk.</div>'
-      : `<label class="minihead">Where you could stay — pins on the map, tap to prefer</label>
-        <div class="optlist" style="max-height:150px">${hotels.map((h,j)=>`
+      : state==='off' ? '<div class="hint">Connect the worker (VITE_API_BASE) for live hotel rates.</div>'
+      : filterRow+(hs.length?`<label class="minihead">Where you could stay — pan or zoom the map to search that area</label>
+        <div class="optlist" style="max-height:150px">${hs.slice(0,8).map((h,j)=>`
           <div class="opt${trip.hotelPicks[s.city]===h.name?' sel':''}" data-h="${j}">
             <span class="iata">$${Math.round(h.price/Math.max(s.nights,1))}</span>
-            <span class="nm">${h.name}${h.stars>0?`<div class="sub" style="color:var(--gold)">${'★'.repeat(Math.min(h.stars,5))}</div>`:''}</span>
-          </div>`).join('')}</div>`;
+            <span class="nm">${h.name}<div class="sub">${h.stars>0?`<span style="color:var(--gold)">${'★'.repeat(Math.min(h.stars,5))}</span>`:''}${h.rating!=null?` ${h.rating}/10`:''}${h.reviews?` · ${h.reviews.toLocaleString()} reviews`:''}</div></span>
+          </div>`).join('')}</div>
+        ${hidden>0?`<div class="hint">${hidden} more hidden by filters</div>`:''}`
+        :`<div class="hint">${all.length?'Nothing matches these filters here — loosen one or move the map.':'No hotels in this area — pan or zoom the map to search elsewhere.'}</div>`);
     showCard(`
       <div class="eyebrow">City guide · ${i+1} of ${trip.stops.length}</div>
       <div class="question">${s.city}</div>
-      <div class="hint">${s.nights} night${s.nights>1?'s':''} · ${fmtDate(ci)} → ${fmtDate(co)}</div>
+      <div class="hint">${s.nights} night${s.nights>1?'s':''} · ${fmtDate(ci)} → ${fmtDate(co)}${searching?' · <span style="color:var(--route)">searching this area…</span>':''}</div>
       ${hotelBlock}
       ${attractions.length?`<label class="minihead">Don't miss</label>
         <div class="attrlist">${attractions.slice(0,5).map(a=>`<div>· ${a}</div>`).join('')}</div>`:''}
@@ -639,37 +682,63 @@ function stepCityTour(i){
         <button class="btn ghost sm" id="bk">Back</button>
         <button class="btn ghost sm" id="skip">Skip tour</button>
       </div>`);
+    const hsNow=hs;
     qcard.querySelectorAll('[data-h]').forEach(o=>o.onclick=()=>{
-      const h=hotels[+o.dataset.h];
+      const h=hsNow[+o.dataset.h];
       trip.hotelPicks[s.city]=trip.hotelPicks[s.city]===h.name?undefined:h.name;
-      render(hotels,'ok');
+      render(); pushPins();
     });
+    [['fStars','stars'],['fRating','rating'],['fBudget','budget']].forEach(([id,k])=>{
+      const el=$('#'+id); if(el) el.onchange=()=>{ tourFilters[k]=+el.value; render(); pushPins(); };
+    });
+    const fg=$('#fGroup'); if(fg) fg.onchange=()=>{ tourFilters.group=fg.value; render(); pushPins(); };
     const rt=$('#rt'); if(rt) rt.onclick=()=>stepCityTour(i);
     $('#nx').onclick=()=>stepCityTour(i+1);
     $('#bk').onclick=()=>{ if(i===0){ gMarkers.selectAll('.hotelpin').remove(); hideDetailMap(); clearDots(); zoomToFeature(trip.dest.country).then(()=>stepItinerary()); } else stepCityTour(i-1); };
     $('#skip').onclick=()=>stepCityTour(trip.stops.length);
   };
-  render(null, liveMode()?'loading':'off');
-  showDetailMap(container,{ lat:s.lat, lon:s.lon, pins:[], nights:s.nights });
-  if(liveMode()){
-    // Hard ceiling so the card can never sit on 'loading' forever, whatever
-    // the network stack does underneath.
+
+  const fetchArea=(area)=>{
+    if(state==='ok'||state==='error'){ searching=true; render(); }
     const hardStop=new Promise(res=>setTimeout(()=>res({data:null,error:'no response after 25s'}),25000));
     Promise.race([
-      liveHotelsDetailed({ custom:true, name:s.city.replace(/\s*\(.+\)$/,''), lat:s.lat, lon:s.lon }, ci, co),
+      liveHotelsDetailed({ custom:true, name:cityName, lat:area?.lat??s.lat, lon:area?.lon??s.lon }, ci, co, area?.radius),
       hardStop,
     ]).then(({data,error})=>{
       if(seq!==tourSeq) return;
+      searching=false;
       try{
-        if(error==='not-configured') return render(null,'off');
-        if(error) return render(null,'error',error);
-        const hotels=(data??[]).filter(h=>h.price&&h.name).sort((a,b)=>a.price-b.price).slice(0,6);
-        if(!hotels.length) return render(null,'empty');
-        render(hotels,'ok');
-        const fallbackPins=()=>{ if(seq===tourSeq) drawHotelPins(hotels,s.nights); };
-        if(!showDetailMap(container,{ lat:s.lat, lon:s.lon, pins:hotels, nights:s.nights, onFail:fallbackPins })) fallbackPins();
-      }catch(e){ render(null,'error','display error: '+(e?.message??e)); }
+        if(error==='not-configured'){ state='off'; return render(); }
+        if(error){ state='error'; errMsg=error; return render(); }
+        state='ok';
+        all=(data??[]).filter(h=>h.price&&h.name).sort((a,b)=>a.price-b.price);
+        render(); pushPins();
+      }catch(e){ state='error'; errMsg='display error: '+(e?.message??e); render(); }
     });
+  };
+
+  render();
+  showDetailMap(container,{ lat:s.lat, lon:s.lon, pins:[], attrs, nights:s.nights, fly:true });
+  if(liveMode()) fetchArea(null);
+
+  // Geocode the top attractions once per city; pin them when found nearby.
+  if(!attrCache[cityName]){
+    (async()=>{
+      const found=[];
+      for(const a of attractions.slice(0,5)){
+        const label=a.split(/[&,·(]/)[0].trim();
+        if(label.length<3) continue;
+        const hit=await searchPOI(`${label}, ${cityName}`);
+        if(hit){
+          const d=haversine({lat:s.lat,lon:s.lon},{lat:hit.lat,lon:hit.lon});
+          if(d<35) found.push({ name:label, lat:hit.lat, lon:hit.lon });
+        }
+        await new Promise(r=>setTimeout(r,350)); // Nominatim rate courtesy
+        if(seq!==tourSeq) return;
+      }
+      attrCache[cityName]=found;
+      if(seq===tourSeq){ attrs=found; pushPins(); }
+    })();
   }
 }
 
@@ -796,6 +865,7 @@ function stepSummary(){
         arrivalAirport: { iata: trip.dest.airport.iata, name: trip.dest.airport.name, lat: trip.dest.airport.lat, lon: trip.dest.airport.lon },
         endAirport: trip.endAirport ? { iata: trip.endAirport.iata, name: trip.endAirport.name, lat: trip.endAirport.lat, lon: trip.endAirport.lon } : null,
         hotelPicks: Object.fromEntries(Object.entries(trip.hotelPicks).filter(([, v]) => v)),
+        hotelPrefs: { stars: tourFilters.stars, rating: tourFilters.rating, budget: tourFilters.budget, group: tourFilters.group },
         stops: trip.stops.map(s=>({ name: s.city, lat: s.lat, lon: s.lon, nights: s.nights, iata: s.airports?.[0]?.iata ?? null })),
         endCity: trip.endCity.city,
         homeAirport: { iata: trip.home.iata, name: trip.home.name, city: trip.home.city, lat: trip.home.lat, lon: trip.home.lon },

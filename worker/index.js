@@ -101,7 +101,8 @@ async function liteHotels(env, q) {
   if (q.lat && q.lon) {
     lu.searchParams.set("latitude", q.lat);
     lu.searchParams.set("longitude", q.lon);
-    lu.searchParams.set("distance", "15000");
+    // viewport-driven: the map's visible area sets the search radius
+    lu.searchParams.set("distance", String(Math.min(30000, Math.max(1500, Math.round(+q.radius) || 15000))));
   } else if (q.name) {
     lu.searchParams.set("cityName", q.name);
   }
@@ -136,7 +137,9 @@ async function liteHotels(env, q) {
     if (h && min != null) {
       out.push({
         name: h.name, id: h.id, price: +min,
-        stars: h.stars ?? h.rating ?? null,
+        stars: h.stars ?? null,
+        rating: h.rating ?? null,               // guest review score (0–10)
+        reviews: h.reviewCount ?? h.reviews ?? null,
         lat: h.latitude ?? null, lon: h.longitude ?? null,
       });
     }

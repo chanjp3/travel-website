@@ -42,8 +42,8 @@ async function getDetailed(path, params, timeoutMs = 12000) {
 }
 
 /** Hotels with failure detail — the city tour shows the real reason. */
-export const liveHotelsDetailed = (city, checkIn, checkOut) =>
-  getDetailed("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, cityCode: city.custom ? null : city.cc ?? city.air, checkIn, checkOut }, 20000);
+export const liveHotelsDetailed = (city, checkIn, checkOut, radius) =>
+  getDetailed("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, cityCode: city.custom ? null : city.cc ?? city.air, checkIn, checkOut, radius }, 20000);
 
 export const searchLocations = (q) => get("/api/locations", { q });
 export const liveFlights = (from, to, date, cabin) =>
@@ -56,6 +56,24 @@ export const liveAwards = (from, to, date) => get("/api/awards", { from, to, dat
  *  town); code/geocode serve the Amadeus branch when that's configured. */
 export const liveHotels = (city, checkIn, checkOut) =>
   get("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, cityCode: city.custom ? null : city.cc ?? city.air, checkIn, checkOut }, 20000);
+
+/** Forward POI geocoder (Nominatim) with an in-session cache — pins the
+ *  city's main attractions at their real coordinates. Fails soft to null. */
+const poiCache = new Map();
+export async function searchPOI(q) {
+  if (poiCache.has(q)) return poiCache.get(q);
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&accept-language=en&q=${encodeURIComponent(q)}`,
+      { signal: AbortSignal.timeout(6000), headers: { Accept: "application/json" } }
+    );
+    if (!res.ok) return null;
+    const j = await res.json();
+    const hit = j?.[0] ? { lat: +j[0].lat, lon: +j[0].lon } : null;
+    poiCache.set(q, hit);
+    return hit;
+  } catch { return null; }
+}
 
 /**
  * Reverse geocoder — Nominatim (OSM), keyless, browser-side, low volume.
