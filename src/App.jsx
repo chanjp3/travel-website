@@ -14,11 +14,11 @@ import { hotelsFor } from "./lib/hotelsEngine.js";
 import { hm, usd, cpp, jrPassAnalysis, buildDays, JP_NAMES } from "./lib/trip.js";
 import { bestPath, fundingPaths, describePath } from "./lib/funding.js";
 import { buildLedger } from "./lib/costs.js";
-import { liveMode, geoSearch } from "./api/client.js";
+import { liveMode, geoSearch, liveFlights, liveAwards, liveHotels } from "./api/client.js";
 import { suggestCities } from "./lib/suggest.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
 import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels } from "./lib/liveMerge.js";
-import { defaultDepart, buildSchedule, toISO, fmtDay, fmtShort, dateForDay } from "./lib/dates.js";
+import { defaultDepart, buildSchedule, toISO, addDays, fmtDay, fmtShort, dateForDay } from "./lib/dates.js";
 import { Chip, SectionLabel, NightsStepper, PayToggle } from "./components/ui.jsx";
 import { RouteSpine } from "./components/RouteSpine.jsx";
 import { JourneyMap } from "./components/JourneyMap.jsx";
@@ -111,10 +111,20 @@ export default function App() {
     }
     return pool[0]?.id ?? leg.options[0]?.id ?? null;
   };
-  const outId = flightSel.out ?? pickDefault(outLeg);
-  const backId = flightSel.back ?? pickDefault(backLeg);
-  const fOut = outLeg?.options.find((f) => f.id === outId);
-  const fBack = backLeg?.options.find((f) => f.id === backId);
+  // Live mode shows ACTUALS ONLY: live-priced itineraries and verified award
+  // space. Estimate rows stay hidden unless explicitly requested per leg.
+  const [showEst, setShowEst] = useState({});
+  const displayLeg = (leg, key) => {
+    if (!leg || !liveMode() || showEst[key]) return leg;
+    return { ...leg, options: leg.options.filter((f) => f.live || f.awardLive) };
+  };
+  const outLegD = displayLeg(outLeg, "out");
+  const backLegD = displayLeg(backLeg, "back");
+
+  const outId = flightSel.out ?? pickDefault(outLegD);
+  const backId = flightSel.back ?? pickDefault(backLegD);
+  const fOut = outLegD?.options.find((f) => f.id === outId);
+  const fBack = backLegD?.options.find((f) => f.id === backId);
   const pathOut = fOut?.points ? bestPath(fOut.programId, fOut.points, balances) : null;
   const pathBack = fBack?.points ? bestPath(fBack.programId, fBack.points, balances) : null;
 
@@ -167,6 +177,25 @@ export default function App() {
 
   const steps = ["The map", "Route & flights", "Itinerary & cost"];
   const setN = (cid, n) => setNights({ ...nights, [cid]: n });
+
+  // One-tap proof that the live APIs answer, run from the user's browser
+  // against the configured worker (TPA→LHR, ~1 month out).
+  const [diag, setDiag] = useState(null);
+  const runDiag = async () => {
+    setDiag({ running: true });
+    const date = addDays(toISO(new Date()), 30);
+    const [fl, aw, ho] = await Promise.all([
+      liveFlights("TPA", "LHR", date, "Economy"),
+      liveAwards("TPA", "LHR", date),
+      liveHotels({ name: "London", cc: "LON", air: "LHR" }, date, addDays(date, 2)),
+    ]);
+    const verdict = (r) =>
+      r == null ? { ok: false, note: "no response (worker unreachable or key rejected)" }
+      : Array.isArray(r) && r.length === 0 ? { ok: true, note: "reachable — empty result for the test route" }
+      : Array.isArray(r) ? { ok: true, note: `OK — ${r.length} result${r.length !== 1 ? "s" : ""}` }
+      : { ok: false, note: "unexpected response" };
+    setDiag({ flights: verdict(fl), awards: verdict(aw), hotels: verdict(ho), date });
+  };
 
   // The Meridian intake hands us a plotted trip; register its places (any
   // town on Earth) and let the engines take over.
@@ -315,8 +344,8 @@ export default function App() {
             {/* Long-haul flights with funding paths */}
             <div className="grid md:grid-cols-2 gap-5">
               {[
-                { key: "out", dir: `Outbound · ${depAir} → ${route.inGw.gw} · ${fmtDay(departDate)}`, leg: outLeg, sel: outId, loading: liveOut.loading },
-                { key: "back", dir: `Return · ${route.outGw.gw} → ${retAir}${schedule ? ` · ${fmtDay(schedule.returnDate)}` : ""}`, leg: backLeg, sel: backId, loading: liveBack.loading },
+                { key: "out", dir: `Outbound · ${depAir} → ${route.inGw.gw} · ${fmtDay(departDate)}`, leg: outLegD, sel: outId, loading: liveOut.loading || awardsOut.loading },
+                { key: "back", dir: `Return · ${route.outGw.gw} → ${retAir}${schedule ? ` · ${fmtDay(schedule.returnDate)}` : ""}`, leg: backLegD, sel: backId, loading: liveBack.loading || awardsBack.loading },
               ].map(({ key, dir, leg, sel, loading }) => {
                 const visible = leg.options.filter((f) => {
                   if (f.cabin !== cabinPref && !f.cashOnly) return false;
@@ -324,11 +353,32 @@ export default function App() {
                   return true;
                 });
                 const shown = visible.length ? visible : leg.options.filter((f) => f.cabin === cabinPref);
+                const actualsOnly = liveMode() && !showEst[key];
                 return (
                   <div key={key}>
                     <SectionLabel>{dir}</SectionLabel>
-                    {loading && (
-                      <p className="text-xs mb-2 pulse-dot" style={{ color: T.flight }}>Fetching live fares for your dates…</p>
+                    {loading && actualsOnly && shown.length === 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs mb-1 pulse-dot" style={{ color: T.flight }}>Searching live fares & award space for this date…</p>
+                        {[0, 1, 2].map((i) => <div key={i} className="rounded-xl skel" style={{ height: 74 }} />)}
+                      </div>
+                    ) : actualsOnly && shown.length === 0 ? (
+                      <div className="rounded-xl p-5 text-center" style={{ background: T.card, border: `1px dashed ${T.mist}` }}>
+                        <p className="text-sm font-bold">No live results for this route & date yet</p>
+                        <p className="text-xs mt-1" style={{ color: T.inkSoft }}>
+                          Nothing came back from the fare cache or award search. Try another date — or view the published-chart estimates.
+                        </p>
+                        <button
+                          onClick={() => setShowEst({ ...showEst, [key]: true })}
+                          className="mt-3 py-2 px-4 rounded-xl font-bold text-xs"
+                          style={{ border: `1.5px solid ${T.mist}`, color: T.inkSoft, background: T.paper }}
+                        >
+                          Show estimates instead
+                        </button>
+                      </div>
+                    ) : null}
+                    {loading && shown.length > 0 && (
+                      <p className="text-xs mb-2 pulse-dot" style={{ color: T.flight }}>Still searching — more live results may land…</p>
                     )}
                     {leg.live && (
                       <p className="text-xs mb-2" style={{ color: T.pine }}>
@@ -722,6 +772,35 @@ export default function App() {
                   </label>
                 ))}
               </div>
+            </div>
+
+            <div className="rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <span className="text-sm font-bold">Live-data connection check</span>
+                <button
+                  onClick={runDiag}
+                  disabled={!liveMode() || diag?.running}
+                  className="py-1.5 px-3 rounded-lg text-xs font-bold text-white disabled:opacity-40"
+                  style={{ background: T.ink }}
+                >
+                  {diag?.running ? "Checking…" : "Run check"}
+                </button>
+              </div>
+              <p className="text-xs" style={{ color: T.inkSoft }}>
+                {liveMode()
+                  ? "Calls your worker for a test route (TPA → LHR, ~1 month out) and reports each API."
+                  : "Unavailable in estimate mode — set VITE_API_BASE to your worker first."}
+              </p>
+              {diag && !diag.running && (
+                <div className="mt-2 space-y-1">
+                  {[["Cash fares (Travelpayouts)", diag.flights], ["Award space (Seats.aero)", diag.awards], ["Hotel rates (Hotellook)", diag.hotels]].map(([label, v]) => (
+                    <div key={label} className="flex items-start justify-between gap-2 text-xs">
+                      <span style={{ color: T.inkSoft }}>{label}</span>
+                      <span className="font-bold text-right" style={{ color: v.ok ? T.pine : T.flight, fontFamily: "'IBM Plex Mono', monospace" }}>{v.note}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: T.railTint, border: `1px solid ${T.rail}22` }}>

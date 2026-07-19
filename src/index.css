@@ -96,3 +96,15 @@ input[type="date"] {
 ::-webkit-scrollbar-thumb:hover {
   background: #b9bab4;
 }
+
+/* Live-search skeleton rows */
+@keyframes skel-sweep {
+  from { background-position: -200px 0; }
+  to { background-position: 200px 0; }
+}
+.skel {
+  background: linear-gradient(90deg, #f1eee4 25%, #faf8f0 50%, #f1eee4 75%);
+  background-size: 400px 100%;
+  animation: skel-sweep 1.2s linear infinite;
+  border: 1px solid rgba(30, 43, 51, 0.07);
+}
