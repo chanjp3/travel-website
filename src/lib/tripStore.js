@@ -22,7 +22,8 @@ export function serializeTrip(s) {
     startAt: s.startAt, endAt: s.endAt,
     originAir: s.originAir, homeAir: s.homeAir,
     inGw: s.inGw, outGw: s.outGw,
-    hotelPicks: s.hotelPicks, hotelPrefs: s.hotelPrefs,
+    hotelPicks: s.hotelPicks, tourHotels: s.tourHotels, legVia: s.legVia,
+    hotelPrefs: s.hotelPrefs,
     cabinPref: s.cabinPref, pointsOnly: s.pointsOnly, wCost: s.wCost,
     balances: s.balances,
   };
