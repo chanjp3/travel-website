@@ -67,9 +67,9 @@ export const searchLocations = (q) => get("/api/locations", { q });
 /** Flights for a route+date. `via` tells the worker which connection hubs
  *  to try if the fare cache has no direct answer — it then builds the
  *  journey itself (TPA→SEA + SEA→NRT) instead of returning nothing. */
-export const liveFlights = (from, to, date, cabin) =>
+export const liveFlights = (from, to, date, cabin, ret = null) =>
   get("/api/flights", {
-    from, to, date,
+    from, to, date, ret,
     cabin: cabin === "Business" ? "BUSINESS" : "ECONOMY",
     via: connectionHubs(from, to).join(",") || null,
   });

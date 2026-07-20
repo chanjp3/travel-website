@@ -17,6 +17,7 @@ export const SOURCES = {
   bilt:    { name: "Bilt Rewards", short: "Bilt", kind: "card" },
   // airline programs
   virginAtlantic: { name: "Virgin Atlantic Flying Club", short: "Virgin Atlantic", kind: "air" },
+  flyingBlue:     { name: "Air France/KLM Flying Blue", short: "Flying Blue", kind: "air" },
   aeroplan:       { name: "Air Canada Aeroplan", short: "Aeroplan", kind: "air" },
   united:         { name: "United MileagePlus", short: "United", kind: "air" },
   delta:          { name: "Delta SkyMiles", short: "Delta", kind: "air" },
@@ -32,6 +33,7 @@ export const SOURCES = {
 export const TRANSFERS = {
   amexMR: {
     virginAtlantic: { r: 1, d: 0 },
+    flyingBlue:     { r: 1, d: 0 },
     aeroplan:       { r: 1, d: 0 },
     ana:            { r: 1, d: 3 }, // ANA transfers take ~2–3 days — plan ahead
     delta:          { r: 1, d: 0 },
@@ -42,6 +44,7 @@ export const TRANSFERS = {
     united:         { r: 1, d: 0 },
     aeroplan:       { r: 1, d: 0 },
     virginAtlantic: { r: 1, d: 0 },
+    flyingBlue:     { r: 1, d: 0 },
     hyatt:          { r: 1, d: 0 }, // the crown jewel of UR
     marriott:       { r: 1, d: 1 },
   },
@@ -50,6 +53,7 @@ export const TRANSFERS = {
     united:         { r: 1, d: 0 },
     hyatt:          { r: 1, d: 0 },
     virginAtlantic: { r: 1, d: 0 },
+    flyingBlue:     { r: 1, d: 0 },
     aeroplan:       { r: 1, d: 0 },
     marriott:       { r: 1, d: 0 },
   },

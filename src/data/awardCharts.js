@@ -19,6 +19,8 @@ export const AWARD_CHARTS = {
   "EU|NA": [
     { programId: "virginAtlantic", airline: "Virgin/Delta", cabin: "Business", pts: 47500, fees: 320 },
     { programId: "virginAtlantic", airline: "Virgin/Delta", cabin: "Economy",  pts: 20000, fees: 190 },
+    { programId: "flyingBlue", airline: "Air France/KLM/Delta", cabin: "Business", pts: 60000, fees: 250 },
+    { programId: "flyingBlue", airline: "Air France/KLM/Delta", cabin: "Economy",  pts: 25000, fees: 130 },
     { programId: "aeroplan", airline: "United/Lufthansa/AC", cabin: "Business", pts: 60000, fees: 120 },
     { programId: "aeroplan", airline: "Star Alliance",       cabin: "Economy",  pts: 35000, fees: 90 },
     { programId: "alaska",   airline: "AA/BA/Iberia",        cabin: "Business", pts: 60000, fees: 250 },

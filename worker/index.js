@@ -71,13 +71,18 @@ async function tpGet(urlStr, token) {
   return j;
 }
 
-/** Aviasales cached market fares (economy) → the app's flight-offer shape. */
-async function tpFlights(env, q) {
+/** Aviasales cached market fares (economy) → the app's flight-offer shape.
+ *  With `ret`, queries the round-trip cache instead — far richer than the
+ *  one-way cache (it's what people actually search), so it's the fallback
+ *  when a one-way lookup for a route with daily flights comes back empty.
+ *  Round-trip offers carry the FULL both-ways price and roundTrip: true. */
+async function tpFlights(env, q, ret = null) {
   const u = new URL("https://api.travelpayouts.com/aviasales/v3/prices_for_dates");
   u.searchParams.set("origin", q.from);
   u.searchParams.set("destination", q.to);
   u.searchParams.set("departure_at", q.date);
-  u.searchParams.set("one_way", "true");
+  if (ret) u.searchParams.set("return_at", ret);
+  u.searchParams.set("one_way", ret ? "false" : "true");
   u.searchParams.set("direct", "false");
   u.searchParams.set("unique", "false");
   u.searchParams.set("sorting", "price");
@@ -85,13 +90,16 @@ async function tpFlights(env, q) {
   u.searchParams.set("currency", "usd");
   const j = await tpGet(u.toString(), env.TRAVELPAYOUTS_TOKEN);
   return (j.data ?? []).map((o) => {
-    const min = o.duration ?? null;
+    // Round-trip durations cover both directions — don't present them as
+    // one leg's flight time.
+    const min = ret ? null : o.duration ?? null;
     return {
       price: +o.price,
       carrier: o.airline,
       cabin: "ECONOMY", // cached Aviasales fares are economy market prices
       transfers: o.transfers ?? 0,
       durMin: min,
+      ...(ret ? { roundTrip: true } : {}),
       itineraries: [{
         duration: min != null ? `PT${Math.floor(min / 60)}H${min % 60}M` : null,
         segments: [{
@@ -266,10 +274,12 @@ export default {
       }
       if (url.pathname === "/api/flights") {
         if (!env.AMADEUS_KEY && env.TRAVELPAYOUTS_TOKEN) {
-          const direct = await tpFlights(env, q);
-          // Only a completely empty direct answer triggers hub-building —
-          // any cached fare at all is the answer, without the fan-out.
-          if (direct.length || !q.via) return json(direct);
+          // Escalating search: exact one-way → live round-trip fare for the
+          // trip's real dates → connections built through hubs. Any answer
+          // at a given level stops the escalation (no needless fan-out).
+          let offers = await tpFlights(env, q);
+          if (!offers.length && q.ret) offers = await tpFlights(env, q, q.ret).catch(() => []);
+          if (offers.length || !q.via) return json(offers);
           return json(await connectionOffers(env, q));
         }
         const r = await amadeus(env, "/v2/shopping/flight-offers", {

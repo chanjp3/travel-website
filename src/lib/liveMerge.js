@@ -35,7 +35,11 @@ export function mergeLiveLeg(leg, offers, cabin) {
       id: `live-${cabin}-${i}`,
       airline: airlineName(o.carrier ?? segs[0].carrier),
       cabin: offerCabin(o), programId: null, points: null, fees: 0,
-      cash: Math.round(o.price),
+      // Round-trip fallback fares carry the full both-ways price — show
+      // the per-direction half so every leg row stays comparable.
+      cash: Math.round(o.price / (o.roundTrip ? 2 : 1)),
+      roundTrip: !!o.roundTrip,
+      rtTotal: o.roundTrip ? Math.round(o.price) : null,
       selfTransfer: !!o.selfTransfer,
       hub: o.selfTransfer ? o.via : null,
       layover: o.selfTransfer ? hmStr(o.layoverMin) : null,
@@ -73,6 +77,7 @@ export function mergeLiveLeg(leg, offers, cabin) {
  */
 const SEATSAERO_SOURCES = {
   virginatlantic: "virginAtlantic",
+  flyingblue: "flyingBlue",
   aeroplan: "aeroplan",
   united: "united",
   delta: "delta",

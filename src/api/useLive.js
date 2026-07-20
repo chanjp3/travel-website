@@ -6,7 +6,10 @@ import { useEffect, useState } from "react";
 import { liveFlights, liveHotels, liveAwards, liveMode } from "./client.js";
 import { cityById } from "../data/world.js";
 
-export function useLiveLeg(fromAir, toAir, date, cabin) {
+/** `ret` (return date) lets the worker fall back to the much richer
+ *  round-trip fare cache — pass it only for the outbound leg of a true
+ *  round trip (same airports both ways). */
+export function useLiveLeg(fromAir, toAir, date, cabin, ret = null) {
   const [state, set] = useState({ offers: null, loading: false });
   useEffect(() => {
     if (!liveMode() || !fromAir || !toAir || !date) {
@@ -15,11 +18,11 @@ export function useLiveLeg(fromAir, toAir, date, cabin) {
     }
     let on = true;
     set({ offers: null, loading: true });
-    liveFlights(fromAir, toAir, date, cabin).then(
+    liveFlights(fromAir, toAir, date, cabin, ret).then(
       (offers) => on && set({ offers, loading: false })
     );
     return () => { on = false; };
-  }, [fromAir, toAir, date, cabin]);
+  }, [fromAir, toAir, date, cabin, ret]);
   return state;
 }
 
