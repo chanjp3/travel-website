@@ -80,8 +80,14 @@ export const liveFlights = (from, to, date, cabin, ret = null) =>
 export const liveFlightsProbe = (from, to, date, cabin) =>
   get("/api/flights", { from, to, date, cabin: cabin === "Business" ? "BUSINESS" : "ECONOMY" });
 
-/** Seats.aero award availability for a route+date (null when not configured). */
-export const liveAwards = (from, to, date) => get("/api/awards", { from, to, date });
+/** Seats.aero award availability for a route+date (null when not configured).
+ *  `via` lets the worker build two-booking plans through hubs when the
+ *  direct pair has no space; `detail` fetches real times & flight numbers. */
+export const liveAwards = (from, to, date) =>
+  get("/api/awards", { from, to, date, detail: 1, via: connectionHubs(from, to).join(",") || null });
+
+/** Cheap single-call probe — no hub fan-out, no detail. For the advisor. */
+export const liveAwardsProbe = (from, to, date) => get("/api/awards", { from, to, date });
 
 /** Hotels for a city object. Name drives Hotellook lookup (works for any
  *  town); code/geocode serve the Amadeus branch when that's configured. */

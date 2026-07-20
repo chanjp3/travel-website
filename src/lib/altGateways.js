@@ -4,7 +4,7 @@
  * live cash fares and live award space — and returns the single best tip.
  * Results are cached per pair+date; everything fails soft to null.
  */
-import { liveFlightsProbe, liveAwards } from "../api/client.js";
+import { liveFlightsProbe, liveAwardsProbe } from "../api/client.js";
 import { alternatesNearCity } from "./airports.js";
 
 const SOURCES_MAP = { virginatlantic: 1, aeroplan: 1, united: 1, delta: 1, alaska: 1 };
@@ -27,7 +27,7 @@ async function pricePair(dep, arr, date, cabin) {
   if (cache.has(key)) return cache.get(key);
   const [offers, awards] = await Promise.all([
     liveFlightsProbe(dep, arr, date, cabin),
-    liveAwards(dep, arr, date),
+    liveAwardsProbe(dep, arr, date),
   ]);
   const out = {
     cash: bestCashOf(offers),
