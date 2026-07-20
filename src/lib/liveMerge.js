@@ -36,7 +36,13 @@ export function mergeLiveLeg(leg, offers, cabin) {
       airline: airlineName(o.carrier ?? segs[0].carrier),
       cabin: offerCabin(o), programId: null, points: null, fees: 0,
       cash: Math.round(o.price),
-      via: segs.length > 1
+      selfTransfer: !!o.selfTransfer,
+      hub: o.selfTransfer ? o.via : null,
+      layover: o.selfTransfer ? hmStr(o.layoverMin) : null,
+      overnight: !!o.overnight,
+      via: o.selfTransfer
+        ? `via ${o.via} (self-transfer)`
+        : segs.length > 1
         ? `via ${segs.slice(0, -1).map((s) => s.to).join(", ")}`
         : stops > 0 ? `${stops} stop${stops !== 1 ? "s" : ""}` : "nonstop",
       dur: it.duration ? hmStr(parseDur(it.duration)) : "",

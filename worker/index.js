@@ -76,6 +76,7 @@ async function tpFlights(env, q) {
       carrier: o.airline,
       cabin: "ECONOMY", // cached Aviasales fares are economy market prices
       transfers: o.transfers ?? 0,
+      durMin: min,
       itineraries: [{
         duration: min != null ? `PT${Math.floor(min / 60)}H${min % 60}M` : null,
         segments: [{
@@ -86,6 +87,85 @@ async function tpFlights(env, q) {
       }],
     };
   });
+}
+
+/* ── Built connections ──────────────────────────────────────────────────
+ * When the fare cache has no direct answer for a route (TPA→NRT), don't
+ * give up: price origin→hub and hub→destination separately through the
+ * hubs the client nominated (?via=SEA,ORD,…) and stitch the two cheapest
+ * compatible fares into one plan with a real, verified layover. These are
+ * two separate tickets (self-transfer), and every result says so.
+ */
+const isoDur = (min) => `PT${Math.floor(min / 60)}H${min % 60}M`;
+const offsetOf = (ts) => /([+-]\d{2}:\d{2}|Z)$/.exec(ts ?? "")?.[1] ?? "Z";
+function localISO(epochMs, offset) {
+  const shift = offset === "Z" ? 0
+    : (offset[0] === "-" ? -1 : 1) * (+offset.slice(1, 3) * 60 + +offset.slice(4, 6));
+  return new Date(epochMs + shift * 60000).toISOString().slice(0, 19) + (offset === "Z" ? "Z" : offset);
+}
+
+/** Stitch per-hub leg fares into ranked self-transfer itineraries.
+ *  Exported for tests. Layover window: ≥2h (bags must be recollected),
+ *  ≤26h (allows a next-morning second leg, flagged as overnight). */
+export function synthesizeConnections(hubLegs, { minLayoverMin = 120, maxLayoverMin = 26 * 60 } = {}) {
+  const usable = (list) => (list ?? []).filter(
+    (o) => o.price > 0 && o.durMin && o.itineraries?.[0]?.segments?.[0]?.dep
+  );
+  const out = [];
+  for (const { hub, leg1, leg2 } of hubLegs) {
+    const first = usable(leg1).sort((a, b) => a.price - b.price)[0];
+    if (!first) continue;
+    const s1 = first.itineraries[0].segments[0];
+    const dep1 = Date.parse(s1.dep);
+    if (!Number.isFinite(dep1)) continue;
+    const arr1 = dep1 + first.durMin * 60000;
+    const best = usable(leg2)
+      .map((o) => ({ o, dep2: Date.parse(o.itineraries[0].segments[0].dep) }))
+      .filter((x) => Number.isFinite(x.dep2))
+      .map((x) => ({ ...x, layover: Math.round((x.dep2 - arr1) / 60000) }))
+      .filter((x) => x.layover >= minLayoverMin && x.layover <= maxLayoverMin)
+      .sort((a, b) => a.o.price - b.o.price || a.layover - b.layover)[0];
+    if (!best) continue;
+    const s2 = best.o.itineraries[0].segments[0];
+    out.push({
+      price: Math.round((first.price + best.o.price) * 100) / 100,
+      carrier: first.carrier,
+      cabin: "ECONOMY",
+      transfers: (first.transfers ?? 0) + (best.o.transfers ?? 0) + 1,
+      selfTransfer: true,
+      via: hub,
+      layoverMin: best.layover,
+      overnight: best.layover >= 12 * 60,
+      itineraries: [{
+        duration: isoDur(first.durMin + best.layover + best.o.durMin),
+        segments: [
+          { ...s1, to: hub, arr: localISO(arr1, offsetOf(s2.dep)) },
+          { ...s2, from: hub },
+        ],
+      }],
+    });
+  }
+  return out.sort((a, b) => a.price - b.price).slice(0, 4);
+}
+
+async function connectionOffers(env, q) {
+  const hubs = (q.via ?? "").split(",").map((s) => s.trim().toUpperCase())
+    .filter((h) => /^[A-Z]{3}$/.test(h) && h !== q.from && h !== q.to)
+    .slice(0, 6);
+  if (!hubs.length) return [];
+  const next = new Date(q.date + "T00:00:00Z");
+  next.setUTCDate(next.getUTCDate() + 1);
+  const nextDate = next.toISOString().slice(0, 10);
+  const safe = (p) => p.catch(() => []);
+  const hubLegs = await Promise.all(hubs.map(async (hub) => {
+    const [leg1, leg2a, leg2b] = await Promise.all([
+      safe(tpFlights(env, { from: q.from, to: hub, date: q.date })),
+      safe(tpFlights(env, { from: hub, to: q.to, date: q.date })),
+      safe(tpFlights(env, { from: hub, to: q.to, date: nextDate })),
+    ]);
+    return { hub, leg1, leg2: [...leg2a, ...leg2b] };
+  }));
+  return synthesizeConnections(hubLegs);
 }
 
 /** LiteAPI (liteapi.travel): geo hotel list → real-time rates for the stay.
@@ -165,7 +245,12 @@ export default {
         })) ?? []);
       }
       if (url.pathname === "/api/flights") {
-        if (!env.AMADEUS_KEY && env.TRAVELPAYOUTS_TOKEN) return json(await tpFlights(env, q));
+        if (!env.AMADEUS_KEY && env.TRAVELPAYOUTS_TOKEN) {
+          const direct = await tpFlights(env, q);
+          // Sparse or empty direct answer → build the journey through hubs.
+          if (direct.length >= 3 || !q.via) return json(direct);
+          return json([...direct, ...(await connectionOffers(env, q))]);
+        }
         const r = await amadeus(env, "/v2/shopping/flight-offers", {
           originLocationCode: q.from, destinationLocationCode: q.to,
           departureDate: q.date, adults: q.adults ?? 1,

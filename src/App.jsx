@@ -438,9 +438,13 @@ export default function App() {
                 { key: "out", dir: `Outbound · ${depAir} → ${route.inGw.gw} · ${fmtDay(departDate)}`, leg: outLegD, sel: outId, loading: liveOut.loading || awardsOut.loading },
                 { key: "back", dir: `Return · ${route.outGw.gw} → ${retAir}${schedule ? ` · ${fmtDay(schedule.returnDate)}` : ""}`, leg: backLegD, sel: backId, loading: liveBack.loading || awardsBack.loading },
               ].map(({ key, dir, leg, sel, loading }) => {
+                // Points-only hides cash rows — but never at the cost of a dead
+                // end. A leg with no fundable award falls back to every way of
+                // getting there, including connections the system built itself.
+                const hasAward = leg.options.some((f) => f.points && bestPath(f.programId, f.points, balances));
                 const visible = leg.options.filter((f) => {
                   if (f.cabin !== cabinPref && !f.cashOnly) return false;
-                  if (pointsOnly) return f.points && bestPath(f.programId, f.points, balances);
+                  if (pointsOnly && hasAward) return f.points && bestPath(f.programId, f.points, balances);
                   return true;
                 });
                 const shown = visible.length ? visible : leg.options.filter((f) => f.cabin === cabinPref);
@@ -457,7 +461,8 @@ export default function App() {
                       <div className="rounded-xl p-5 text-center" style={{ background: T.card, border: `1px dashed ${T.mist}` }}>
                         <p className="text-sm font-bold">No live results for this route & date yet</p>
                         <p className="text-xs mt-1" style={{ color: T.inkSoft }}>
-                          Nothing came back from the fare cache or award search. Try another date — or view the published-chart estimates.
+                          Nothing came back from the fare cache or award search — even after trying to build a
+                          connection through nearby hub airports. Try another date — or view the published-chart estimates.
                         </p>
                         <button
                           onClick={() => setShowEst({ ...showEst, [key]: true })}
@@ -474,7 +479,13 @@ export default function App() {
                     {leg.live && (
                       <p className="text-xs mb-2" style={{ color: T.pine }}>
                         <b>Live fares loaded</b> — real itineraries and prices for this date; ¢/pt values use them.
-                        {leg.awardsLive && <> <b>Award space verified via Seats.aero</b> — LIVE AWARD rows are bookable today.</>}
+                        {leg.awardsLive && leg.options.some((f) => f.awardLive) && <> <b>Award space verified via Seats.aero</b> — LIVE AWARD rows are bookable today.</>}
+                      </p>
+                    )}
+                    {pointsOnly && !hasAward && shown.length > 0 && (
+                      <p className="text-xs mb-2" style={{ color: T.flight }}>
+                        <b>No fundable award space on this leg</b> — showing every way to get there anyway,
+                        including connections built from separate tickets.
                       </p>
                     )}
                     {altTips[key] && (
@@ -535,6 +546,13 @@ export default function App() {
                             </div>
                             {f.flightNos && (
                               <p className="text-xs mt-1" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{f.flightNos}</p>
+                            )}
+                            {f.selfTransfer && (
+                              <p className="text-xs mt-1" style={{ color: T.flight }}>
+                                <b>Built connection:</b> no direct fare exists, so this stitches two separate tickets —{" "}
+                                {f.layover} in {f.hub} to change planes{f.overnight ? " (overnight — bring patience or book a day room)" : ""}.
+                                Recollect bags and re-check in at {f.hub}.
+                              </p>
                             )}
                             <div className="flex items-center justify-between mt-2 flex-wrap gap-1">
                               {f.points ? (
