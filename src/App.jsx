@@ -14,7 +14,7 @@ import { hotelsFor } from "./lib/hotelsEngine.js";
 import { hm, usd, cpp, jrPassAnalysis, buildDays, JP_NAMES } from "./lib/trip.js";
 import { bestPath, fundingPaths, describePath } from "./lib/funding.js";
 import { buildLedger } from "./lib/costs.js";
-import { liveMode, geoSearch, liveFlightsProbe, liveAwards, liveHotels } from "./api/client.js";
+import { liveMode, geoSearch, liveFlightsProbe, liveAwardsProbe, liveHotels } from "./api/client.js";
 import { suggestCities } from "./lib/suggest.js";
 import { HOTEL_GROUPS, brandGroupOf } from "./lib/hotelBrands.js";
 import { bestAlternate } from "./lib/altGateways.js";
@@ -258,7 +258,7 @@ export default function App() {
     const date = addDays(toISO(new Date()), 30);
     const [fl, aw, ho] = await Promise.all([
       liveFlightsProbe("TPA", "LHR", date, "Economy"),
-      liveAwards("TPA", "LHR", date),
+      liveAwardsProbe("TPA", "LHR", date),
       liveHotels({ name: "London", cc: "LON", air: "LHR", lat: 51.5, lon: -0.12 }, date, addDays(date, 2)),
     ]);
     const verdict = (r) =>
@@ -578,6 +578,13 @@ export default function App() {
                                 Recollect bags and re-check in at {f.hub}.
                               </p>
                             )}
+                            {f.twoBookings && (
+                              <p className="text-xs mt-1" style={{ color: T.flight }}>
+                                <b>Two award bookings:</b> no single award covers this route today, so this pairs{" "}
+                                {SOURCES[f.programId]?.short ?? "award"} space into {f.viaHub} with onward space out of {f.viaHub},
+                                booked separately in the same program. Space is date-level — confirm flight times before transferring points.
+                              </p>
+                            )}
                             <div className="flex items-center justify-between mt-2 flex-wrap gap-1">
                               {f.points ? (
                                 <div className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
@@ -588,8 +595,8 @@ export default function App() {
                                 <div className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{usd(f.cash)}</div>
                               )}
                               <div className="flex gap-1.5">
-                                {f.points && <Chip tint={T.pineTint} color={T.pine}>{cpp(f)}¢/pt{f.liveCash ? " · live" : ""}</Chip>}
-                                {f.points && <Chip tint={T.mist} color={T.inkSoft}>cash {usd(f.cash)}{f.liveCash ? " live" : ""}</Chip>}
+                                {f.points && f.cash != null && <Chip tint={T.pineTint} color={T.pine}>{cpp(f)}¢/pt{f.liveCash ? " · live" : ""}</Chip>}
+                                {f.points && f.cash != null && <Chip tint={T.mist} color={T.inkSoft}>cash {usd(f.cash)}{f.liveCash ? " live" : ""}</Chip>}
                               </div>
                             </div>
                             {f.points && (

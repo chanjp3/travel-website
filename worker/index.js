@@ -196,6 +196,115 @@ async function connectionOffers(env, q) {
   return synthesizeConnections(hubLegs);
 }
 
+/* ── Seats.aero award search ────────────────────────────────────────────── */
+
+async function seatsGet(env, url) {
+  const res = await fetch(url, {
+    headers: { "Partner-Authorization": env.SEATSAERO_KEY, Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`Seats.aero failed: ${res.status}`);
+  return res.json();
+}
+
+/** Cached award availability for a route+date, one row per program.
+ *  Cabin blocks only when bookable. */
+async function seatsSearch(env, from, to, date) {
+  const su = new URL("https://seats.aero/partnerapi/search");
+  su.searchParams.set("origin_airport", from);
+  su.searchParams.set("destination_airport", to);
+  su.searchParams.set("start_date", date);
+  su.searchParams.set("end_date", date);
+  su.searchParams.set("take", "100");
+  const j = await seatsGet(env, su.toString());
+  const cabin = (a, c) => (a[`${c}Available`] ? {
+    miles: +a[`${c}MileageCost`] || null,
+    taxes: a[`${c}TotalTaxes`] != null ? Math.round(+a[`${c}TotalTaxes`]) / 100 : null,
+    currency: a.TaxesCurrency ?? "USD",
+    seats: a[`${c}RemainingSeats`] ?? null,
+    direct: !!a[`${c}Direct`],
+    airlines: a[`${c}Airlines`] ?? "",
+  } : null);
+  return (j.data ?? []).map((a) => ({
+    id: a.ID, source: a.Source, date: a.Date,
+    economy: cabin(a, "Y"), business: cabin(a, "J"),
+  }));
+}
+
+/** Enrich the cheapest availability rows with flight-level detail (real
+ *  departure/arrival times, flight numbers, duration) from the trips
+ *  endpoint. Detail is a bonus — any failure leaves the row date-level. */
+async function attachTripDetail(env, rows, max = 4) {
+  const score = (r) => Math.min(r.economy?.miles ?? 9e9, r.business?.miles ?? 9e9);
+  const cands = rows.filter((r) => (r.economy || r.business) && r.id)
+    .sort((a, b) => score(a) - score(b)).slice(0, max);
+  await Promise.all(cands.map(async (r) => {
+    try {
+      const j = await seatsGet(env, `https://seats.aero/partnerapi/trips/${r.id}`);
+      for (const ck of ["economy", "business"]) {
+        const block = r[ck];
+        if (!block) continue;
+        const t = (j.data ?? [])
+          .filter((t) => (t.Cabin ?? "").toLowerCase() === ck && +t.MileageCost)
+          .sort((a, b) => +a.MileageCost - +b.MileageCost)[0];
+        if (t) Object.assign(block, {
+          dep: t.DepartsAt ?? null, arr: t.ArrivesAt ?? null,
+          flightNos: t.FlightNumbers ?? null,
+          durMin: t.TotalDuration ?? null,
+          stops: t.Stops ?? null,
+        });
+      }
+    } catch { /* keep date-level block */ }
+  }));
+}
+
+/** No award space on the direct pair → check the same hubs the cash search
+ *  uses for a SAME-PROGRAM pair of bookings (origin→hub + hub→destination,
+ *  same day). One program keeps the funding story simple: one transfer,
+ *  two award bookings. Availability is date-level, so plans are labeled as
+ *  two separate tickets. */
+async function awardConnections(env, q) {
+  const hubs = (q.via ?? "").split(",").map((s) => s.trim().toUpperCase())
+    .filter((h) => /^[A-Z]{3}$/.test(h) && h !== q.from && h !== q.to)
+    .slice(0, 6);
+  if (!hubs.length) return [];
+  const out = [];
+  for (let i = 0; i < hubs.length; i += 3) {
+    await Promise.all(hubs.slice(i, i + 3).map(async (hub) => {
+      const [l1, l2] = await Promise.all([
+        seatsSearch(env, q.from, hub, q.date).catch(() => []),
+        seatsSearch(env, hub, q.to, q.date).catch(() => []),
+      ]);
+      const bestBy = (rows, ck) => {
+        const m = {};
+        for (const r of rows) {
+          const b = r[ck];
+          if (b?.miles && (!m[r.source] || b.miles < m[r.source].miles)) m[r.source] = b;
+        }
+        return m;
+      };
+      for (const ck of ["economy", "business"]) {
+        const a = bestBy(l1, ck), b = bestBy(l2, ck);
+        for (const source of Object.keys(a)) {
+          if (!b[source]) continue;
+          out.push({
+            source, date: q.date, via: hub,
+            economy: null, business: null,
+            [ck]: {
+              miles: a[source].miles + b[source].miles,
+              taxes: Math.round(((a[source].taxes ?? 0) + (b[source].taxes ?? 0)) * 100) / 100,
+              currency: a[source].currency,
+              seats: Math.min(a[source].seats ?? 9, b[source].seats ?? 9),
+              direct: false,
+              airlines: [a[source].airlines, b[source].airlines].filter(Boolean).join(" + "),
+            },
+          });
+        }
+      }
+    }));
+  }
+  return out;
+}
+
 /** LiteAPI (liteapi.travel): geo hotel list → real-time rates for the stay.
  *  Hotellook was discontinued by Travelpayouts in Oct 2025; LiteAPI's free
  *  sandbox/prod keys replace it. Output shape is unchanged for the app. */
@@ -348,30 +457,16 @@ export default {
       }
       if (url.pathname === "/api/awards") {
         if (!env.SEATSAERO_KEY) return json({ error: "seats.aero not configured" }, 501);
-        const su = new URL("https://seats.aero/partnerapi/search");
-        su.searchParams.set("origin_airport", q.from);
-        su.searchParams.set("destination_airport", q.to);
-        su.searchParams.set("start_date", q.date);
-        su.searchParams.set("end_date", q.date);
-        su.searchParams.set("take", "100");
-        const res = await fetch(su, {
-          headers: { "Partner-Authorization": env.SEATSAERO_KEY, Accept: "application/json" },
-        });
-        if (!res.ok) throw new Error(`Seats.aero search failed: ${res.status}`);
-        const j = await res.json();
-        // One row per availability object; cabin blocks only when bookable.
-        const cabin = (a, c) => (a[`${c}Available`] ? {
-          miles: +a[`${c}MileageCost`] || null,
-          taxes: a[`${c}TotalTaxes`] != null ? Math.round(+a[`${c}TotalTaxes`]) / 100 : null,
-          currency: a.TaxesCurrency ?? "USD",
-          seats: a[`${c}RemainingSeats`] ?? null,
-          direct: !!a[`${c}Direct`],
-          airlines: a[`${c}Airlines`] ?? "",
-        } : null);
-        return json((j.data ?? []).map((a) => ({
-          source: a.Source, date: a.Date,
-          economy: cabin(a, "Y"), business: cabin(a, "J"),
-        })));
+        const rows = await seatsSearch(env, q.from, q.to, q.date);
+        const hasSpace = rows.some((r) => r.economy || r.business);
+        if (hasSpace) {
+          // Real times & flight numbers for the rows the app will show.
+          if (q.detail) await attachTripDetail(env, rows);
+          return json(rows);
+        }
+        // No direct award space → try two-booking plans through the hubs.
+        if (!q.via) return json(rows);
+        return json([...rows, ...(await awardConnections(env, q))]);
       }
       return json({ error: "not found" }, 404);
     } catch (e) {

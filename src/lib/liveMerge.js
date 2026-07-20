@@ -8,6 +8,7 @@
  * Everything fails soft: no offers → the estimate set is returned untouched.
  */
 import { airlineName } from "../data/airlines.js";
+import { SOURCES } from "../data/transferPartners.js";
 
 const parseDur = (iso) => {
   const m = /PT(?:(\d+)H)?(?:(\d+)M)?/.exec(iso ?? "");
@@ -70,11 +71,7 @@ export function mergeLiveLeg(leg, offers, cabin) {
   return { ...leg, options, live: true, bestCash };
 }
 
-/**
- * Seats.aero source → loyalty program the funding engine can pay into.
- * Programs Seats.aero tracks but our transfer tables don't cover (AA, Flying
- * Blue…) are ignored rather than shown as unfundable rows.
- */
+/** Seats.aero source → our program id — every program Seats.aero tracks. */
 const SEATSAERO_SOURCES = {
   virginatlantic: "virginAtlantic",
   flyingblue: "flyingBlue",
@@ -82,14 +79,52 @@ const SEATSAERO_SOURCES = {
   united: "united",
   delta: "delta",
   alaska: "alaska",
+  american: "american",
+  qantas: "qantas",
+  emirates: "emirates",
+  etihad: "etihad",
+  qatar: "qatar",
+  turkish: "turkish",
+  jetblue: "jetblue",
+  velocity: "velocity",
+  eurobonus: "eurobonus",
+  aeromexico: "aeromexico",
+  connectmiles: "connectmiles",
+  azul: "azul",
+  smiles: "smiles",
 };
 const CABIN_KEY = { Economy: "economy", Business: "business" };
 
+/** Apply a live availability block to an option row: real miles/taxes, and —
+ *  when the worker fetched flight-level detail — real times, flight numbers,
+ *  and duration. Two-booking plans (built through a hub) are labeled. */
+function applyAwardHit(f, hit) {
+  return {
+    ...f,
+    points: hit.miles,
+    fees: hit.taxes ?? f.fees ?? 0,
+    est: false, awardLive: true,
+    seats: hit.seats, direct: hit.direct,
+    airline: hit.airlines || f.airline,
+    twoBookings: !!hit.via, viaHub: hit.via ?? null,
+    via: hit.via
+      ? `two bookings via ${hit.via}`
+      : hit.stops != null
+      ? hit.stops > 0 ? `${hit.stops} stop${hit.stops !== 1 ? "s" : ""}` : "nonstop"
+      : f.via,
+    ...(hit.flightNos ? { flightNos: hit.flightNos } : {}),
+    ...(hit.dep ? { dep: timeOf(hit.dep), arr: timeOf(hit.arr) } : {}),
+    ...(hit.durMin ? { dur: hmStr(hit.durMin) } : {}),
+  };
+}
+
 /**
  * Merge Seats.aero award space into a leg's options.
- *   rows = null      → not configured / failed: chart estimates untouched
- *   match found      → row repriced to real miles/taxes, marked awardLive
+ *   rows = null       → not configured / failed: chart estimates untouched
+ *   match found       → chart row repriced to real miles/taxes, marked awardLive
  *   tracked, no space → chart row flagged noSpace (shown, warned, deprioritized)
+ *   live space in a program with no chart row → appended as its own row, so
+ *   nothing Seats.aero finds is ever thrown away
  */
 export function mergeLiveAwards(leg, rows) {
   if (!leg || rows == null) return leg;
@@ -101,25 +136,32 @@ export function mergeLiveAwards(leg, rows) {
       const block = r[ck];
       if (!block?.miles) continue;
       const cur = (best[pid] ??= {})[ck];
-      if (!cur || block.miles < cur.miles) best[pid][ck] = block;
+      if (!cur || block.miles < cur.miles) best[pid][ck] = { ...block, via: r.via ?? null };
     }
   }
+  const matched = new Set();
   const options = leg.options.map((f) => {
     if (!f.points || !f.programId) return f;
     const hit = best[f.programId]?.[CABIN_KEY[f.cabin]];
     if (hit) {
-      return {
-        ...f,
-        points: hit.miles,
-        fees: hit.taxes ?? f.fees,
-        est: false, awardLive: true,
-        seats: hit.seats, direct: hit.direct,
-        airline: hit.airlines || f.airline,
-      };
+      matched.add(`${f.programId}|${CABIN_KEY[f.cabin]}`);
+      return applyAwardHit(f, hit);
     }
     // Seats.aero tracks this program — searched, nothing bookable that day.
     return f.programId in invert(SEATSAERO_SOURCES) ? { ...f, noSpace: true } : f;
   });
+  for (const [pid, cabins] of Object.entries(best)) {
+    for (const [ck, hit] of Object.entries(cabins)) {
+      if (matched.has(`${pid}|${ck}`)) continue;
+      options.push(applyAwardHit({
+        id: `livea-${pid}-${ck}`,
+        airline: hit.airlines || SOURCES[pid]?.short || pid,
+        cabin: ck === "economy" ? "Economy" : "Business",
+        programId: pid, points: hit.miles, fees: hit.taxes ?? 0,
+        cash: null, via: hit.direct ? "nonstop" : "1+ stops", dur: "", est: false,
+      }, hit));
+    }
+  }
   options.sort((a, b) =>
     a.cabin === b.cabin ? (a.points ?? 9e9) - (b.points ?? 9e9) : a.cabin === "Economy" ? -1 : 1
   );
