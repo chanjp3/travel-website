@@ -50,10 +50,25 @@ const json = (data, status = 200) => new Response(JSON.stringify(data), { status
 
 /* ── Travelpayouts (Aviasales + Hotellook) ─────────────────────────────── */
 
+/** TP calls are cached at the edge for 30 min — fares are themselves cached
+ *  market data, and connection-building + the alternate-airport advisor
+ *  re-ask the same pairs. Without this, one desk load can burst past
+ *  Travelpayouts' rate limit and 429 even routes with daily flights. */
 async function tpGet(urlStr, token) {
+  const cache = globalThis.caches?.default;
+  if (cache) {
+    const hit = await cache.match(urlStr);
+    if (hit) return hit.json();
+  }
   const res = await fetch(urlStr, { headers: { "X-Access-Token": token, Accept: "application/json" } });
   if (!res.ok) throw new Error(`Travelpayouts failed: ${res.status}`);
-  return res.json();
+  const j = await res.json();
+  if (cache) {
+    await cache.put(urlStr, new Response(JSON.stringify(j), {
+      headers: { "Cache-Control": "public, max-age=1800", "Content-Type": "application/json" },
+    }));
+  }
+  return j;
 }
 
 /** Aviasales cached market fares (economy) → the app's flight-offer shape. */
@@ -157,14 +172,19 @@ async function connectionOffers(env, q) {
   next.setUTCDate(next.getUTCDate() + 1);
   const nextDate = next.toISOString().slice(0, 10);
   const safe = (p) => p.catch(() => []);
-  const hubLegs = await Promise.all(hubs.map(async (hub) => {
-    const [leg1, leg2a, leg2b] = await Promise.all([
-      safe(tpFlights(env, { from: q.from, to: hub, date: q.date })),
-      safe(tpFlights(env, { from: hub, to: q.to, date: q.date })),
-      safe(tpFlights(env, { from: hub, to: q.to, date: nextDate })),
-    ]);
-    return { hub, leg1, leg2: [...leg2a, ...leg2b] };
-  }));
+  // Probe hubs three at a time (≤9 provider calls in flight) so a burst
+  // can't trip Travelpayouts' rate limit and poison unrelated lookups.
+  const hubLegs = [];
+  for (let i = 0; i < hubs.length; i += 3) {
+    hubLegs.push(...await Promise.all(hubs.slice(i, i + 3).map(async (hub) => {
+      const [leg1, leg2a, leg2b] = await Promise.all([
+        safe(tpFlights(env, { from: q.from, to: hub, date: q.date })),
+        safe(tpFlights(env, { from: hub, to: q.to, date: q.date })),
+        safe(tpFlights(env, { from: hub, to: q.to, date: nextDate })),
+      ]);
+      return { hub, leg1, leg2: [...leg2a, ...leg2b] };
+    })));
+  }
   return synthesizeConnections(hubLegs);
 }
 
@@ -247,9 +267,10 @@ export default {
       if (url.pathname === "/api/flights") {
         if (!env.AMADEUS_KEY && env.TRAVELPAYOUTS_TOKEN) {
           const direct = await tpFlights(env, q);
-          // Sparse or empty direct answer → build the journey through hubs.
-          if (direct.length >= 3 || !q.via) return json(direct);
-          return json([...direct, ...(await connectionOffers(env, q))]);
+          // Only a completely empty direct answer triggers hub-building —
+          // any cached fare at all is the answer, without the fan-out.
+          if (direct.length || !q.via) return json(direct);
+          return json(await connectionOffers(env, q));
         }
         const r = await amadeus(env, "/v2/shopping/flight-offers", {
           originLocationCode: q.from, destinationLocationCode: q.to,

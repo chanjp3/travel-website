@@ -74,6 +74,12 @@ export const liveFlights = (from, to, date, cabin) =>
     via: connectionHubs(from, to).join(",") || null,
   });
 
+/** Cheap probe variant — no hub-building, one provider call. Used by the
+ *  alternate-airport advisor and the connection check, which fire many
+ *  speculative lookups; only the trip's two real legs earn the fan-out. */
+export const liveFlightsProbe = (from, to, date, cabin) =>
+  get("/api/flights", { from, to, date, cabin: cabin === "Business" ? "BUSINESS" : "ECONOMY" });
+
 /** Seats.aero award availability for a route+date (null when not configured). */
 export const liveAwards = (from, to, date) => get("/api/awards", { from, to, date });
 

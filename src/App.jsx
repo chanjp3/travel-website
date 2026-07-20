@@ -14,7 +14,7 @@ import { hotelsFor } from "./lib/hotelsEngine.js";
 import { hm, usd, cpp, jrPassAnalysis, buildDays, JP_NAMES } from "./lib/trip.js";
 import { bestPath, fundingPaths, describePath } from "./lib/funding.js";
 import { buildLedger } from "./lib/costs.js";
-import { liveMode, geoSearch, liveFlights, liveAwards, liveHotels } from "./api/client.js";
+import { liveMode, geoSearch, liveFlightsProbe, liveAwards, liveHotels } from "./api/client.js";
 import { suggestCities } from "./lib/suggest.js";
 import { HOTEL_GROUPS, brandGroupOf } from "./lib/hotelBrands.js";
 import { bestAlternate } from "./lib/altGateways.js";
@@ -254,7 +254,7 @@ export default function App() {
     setDiag({ running: true });
     const date = addDays(toISO(new Date()), 30);
     const [fl, aw, ho] = await Promise.all([
-      liveFlights("TPA", "LHR", date, "Economy"),
+      liveFlightsProbe("TPA", "LHR", date, "Economy"),
       liveAwards("TPA", "LHR", date),
       liveHotels({ name: "London", cc: "LON", air: "LHR", lat: 51.5, lon: -0.12 }, date, addDays(date, 2)),
     ]);
