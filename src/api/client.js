@@ -3,6 +3,8 @@
  * Amadeus data is available; otherwise the app runs entirely on the
  * built-in estimate engines. All functions fail soft back to estimates.
  */
+import { connectionHubs } from "../lib/hubs.js";
+
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 export const liveMode = () => !!BASE;
 
@@ -61,8 +63,16 @@ export async function saveTripCloud(data) {
 export const loadTripCloud = (code) => getDetailed("/api/trips", { code });
 
 export const searchLocations = (q) => get("/api/locations", { q });
+
+/** Flights for a route+date. `via` tells the worker which connection hubs
+ *  to try if the fare cache has no direct answer — it then builds the
+ *  journey itself (TPA→SEA + SEA→NRT) instead of returning nothing. */
 export const liveFlights = (from, to, date, cabin) =>
-  get("/api/flights", { from, to, date, cabin: cabin === "Business" ? "BUSINESS" : "ECONOMY" });
+  get("/api/flights", {
+    from, to, date,
+    cabin: cabin === "Business" ? "BUSINESS" : "ECONOMY",
+    via: connectionHubs(from, to).join(",") || null,
+  });
 
 /** Seats.aero award availability for a route+date (null when not configured). */
 export const liveAwards = (from, to, date) => get("/api/awards", { from, to, date });
