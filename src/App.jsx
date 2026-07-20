@@ -87,7 +87,10 @@ export default function App() {
     [route, nights, departDate, outLegEst]
   );
 
-  const liveOut = useLiveLeg(depAir, route?.inGw.gw, departDate, cabinPref);
+  // A true round trip (same airports both ways) unlocks the round-trip
+  // fare cache as a fallback for the outbound lookup.
+  const mirrorRT = route && route.inGw.gw === route.outGw.gw && depAir === retAir;
+  const liveOut = useLiveLeg(depAir, route?.inGw.gw, departDate, cabinPref, mirrorRT ? schedule?.returnDate : null);
   const liveBack = useLiveLeg(route?.outGw.gw, retAir, schedule?.returnDate, cabinPref);
   const awardsOut = useLiveAwards(depAir, route?.inGw.gw, departDate);
   const awardsBack = useLiveAwards(route?.outGw.gw, retAir, schedule?.returnDate);
@@ -457,6 +460,21 @@ export default function App() {
                         <p className="text-xs mb-1 pulse-dot" style={{ color: T.flight }}>Searching live fares & award space for this date…</p>
                         {[0, 1, 2].map((i) => <div key={i} className="rounded-xl skel" style={{ height: 74 }} />)}
                       </div>
+                    ) : actualsOnly && shown.length === 0 && key === "back" && outLegD?.options.some((f) => f.roundTrip) ? (
+                      <div className="rounded-xl p-5 text-center" style={{ background: T.pineTint, border: `1px dashed ${T.pine}` }}>
+                        <p className="text-sm font-bold" style={{ color: T.pine }}>This leg is covered by the outbound's round-trip fares</p>
+                        <p className="text-xs mt-1" style={{ color: T.inkSoft }}>
+                          The live fares listed under Outbound are round-trip prices for your exact dates — the
+                          return flight is part of that same ticket. Nothing separate to book here.
+                        </p>
+                        <button
+                          onClick={() => setShowEst({ ...showEst, [key]: true })}
+                          className="mt-3 py-2 px-4 rounded-xl font-bold text-xs"
+                          style={{ border: `1.5px solid ${T.mist}`, color: T.inkSoft, background: T.paper }}
+                        >
+                          Show estimates instead
+                        </button>
+                      </div>
                     ) : actualsOnly && shown.length === 0 ? (
                       <div className="rounded-xl p-5 text-center" style={{ background: T.card, border: `1px dashed ${T.mist}` }}>
                         <p className="text-sm font-bold">No live results for this route & date yet</p>
@@ -546,6 +564,12 @@ export default function App() {
                             </div>
                             {f.flightNos && (
                               <p className="text-xs mt-1" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{f.flightNos}</p>
+                            )}
+                            {f.roundTrip && (
+                              <p className="text-xs mt-1" style={{ color: T.pine }}>
+                                <b>Live round-trip fare:</b> {usd(f.rtTotal)} covers both directions for your dates —
+                                shown here as the per-direction half. Book it as one round-trip ticket.
+                              </p>
                             )}
                             {f.selfTransfer && (
                               <p className="text-xs mt-1" style={{ color: T.flight }}>
