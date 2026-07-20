@@ -386,8 +386,11 @@ export default {
           // Escalating search: exact one-way → live round-trip fare for the
           // trip's real dates → connections built through hubs. Any answer
           // at a given level stops the escalation (no needless fan-out).
+          // force=1 (a user-chosen layover) always builds through the hubs
+          // and returns those plans alongside whatever the cache had.
           let offers = await tpFlights(env, q);
           if (!offers.length && q.ret) offers = await tpFlights(env, q, q.ret).catch(() => []);
+          if (q.force && q.via) return json([...offers, ...(await connectionOffers(env, q))]);
           if (offers.length || !q.via) return json(offers);
           return json(await connectionOffers(env, q));
         }

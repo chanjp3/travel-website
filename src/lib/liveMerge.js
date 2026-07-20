@@ -28,7 +28,7 @@ export function mergeLiveLeg(leg, offers, cabin) {
   if (!usable.length) return { ...leg, live: false };
 
   const offerCabin = (o) => (o.cabin === "ECONOMY" ? "Economy" : o.cabin === "BUSINESS" ? "Business" : cabin);
-  const liveRows = usable.slice(0, 3).map((o, i) => {
+  const liveRows = usable.slice(0, 8).map((o, i) => {
     const it = o.itineraries[0];
     const segs = it.segments;
     const stops = o.transfers ?? segs.length - 1;
@@ -185,6 +185,23 @@ const brandFor = (name) => BRAND_PROGRAMS.find((b) => b.re.test(name ?? ""));
 const titleCase = (s) =>
   (s ?? "").toLowerCase().replace(/\b\w/g, (ch) => ch.toUpperCase()).replace(/\s+/g, " ").trim();
 
+/** A live hotel offer → the app's hotel-row shape (brand program attached,
+ *  award estimate at the program's typical value). Also used to carry a
+ *  hotel picked during the map tour onto the itinerary page unchanged. */
+export function liveHotelRow(o, n, note) {
+  const nightly = Math.round(o.price / Math.max(n, 1));
+  const brand = brandFor(o.name);
+  const pts = brand ? Math.round(nightly / brand.cpp / brand.block) * brand.block : null;
+  return {
+    name: titleCase(o.name),
+    program: brand?.program ?? "cash", pid: brand?.pid ?? null,
+    pts, cash: nightly, view: null, quality: o.rating ?? null, stars: o.stars ?? null, reviews: o.reviews ?? null, live: true,
+    note: note ?? (brand
+      ? `Live rate · award estimate at typical ${brand.program} value`
+      : "Live rate for your dates"),
+  };
+}
+
 /** Merge live hotel offers into a city's hotel shortlist. */
 export function mergeLiveHotels(base, offers, nights) {
   if (!offers?.length) return { ...base, live: false };
@@ -208,19 +225,7 @@ export function mergeLiveHotels(base, offers, nights) {
     .filter((o) => !named.has(titleCase(o.name).toLowerCase()))
     .filter((o) => !covered.has(brandFor(o.name)?.pid) || !brandFor(o.name))
     .slice(0, base.hotels.length <= 2 ? 3 : 2)
-    .map((o) => {
-      const nightly = Math.round(o.price / n);
-      const brand = brandFor(o.name);
-      const pts = brand ? Math.round(nightly / brand.cpp / brand.block) * brand.block : null;
-      return {
-        name: titleCase(o.name),
-        program: brand?.program ?? "cash", pid: brand?.pid ?? null,
-        pts, cash: nightly, view: null, quality: o.rating ?? null, stars: o.stars ?? null, reviews: o.reviews ?? null, live: true,
-        note: brand
-          ? `Live rate · award estimate at typical ${brand.program} value`
-          : "Live rate for your dates",
-      };
-    });
+    .map((o) => liveHotelRow(o, n));
 
   return { hotels: [...hotels, ...extras], sample: false, live: true };
 }

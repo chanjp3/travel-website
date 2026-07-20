@@ -67,11 +67,14 @@ export const searchLocations = (q) => get("/api/locations", { q });
 /** Flights for a route+date. `via` tells the worker which connection hubs
  *  to try if the fare cache has no direct answer — it then builds the
  *  journey itself (TPA→SEA + SEA→NRT) instead of returning nothing. */
-export const liveFlights = (from, to, date, cabin, ret = null) =>
+/** `viaHub`: a user-chosen layover airport — the worker then ALWAYS builds
+ *  a connection through it (force=1), alongside whatever the cache has. */
+export const liveFlights = (from, to, date, cabin, ret = null, viaHub = null) =>
   get("/api/flights", {
     from, to, date, ret,
     cabin: cabin === "Business" ? "BUSINESS" : "ECONOMY",
-    via: connectionHubs(from, to).join(",") || null,
+    via: viaHub ?? (connectionHubs(from, to).join(",") || null),
+    force: viaHub ? 1 : null,
   });
 
 /** Cheap probe variant — no hub-building, one provider call. Used by the

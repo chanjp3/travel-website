@@ -637,9 +637,9 @@ function stepCityTour(i){
     const hs=filtered();
     const ok=showDetailMap(container,{
       lat:s.lat, lon:s.lon, pins:hs, attrs, nights:s.nights, fly:false,
-      selected:trip.hotelPicks[s.city],
+      selected:trip.hotelPicks[s.city]?.name,
       onPinClick:(h)=>{ if(seq!==tourSeq) return;
-        trip.hotelPicks[s.city]=trip.hotelPicks[s.city]===h.name?undefined:h.name;
+        trip.hotelPicks[s.city]=trip.hotelPicks[s.city]?.name===h.name?undefined:{...h,nights:s.nights};
         render(); pushPins(); },
       onViewChange:(area)=>{ if(seq===tourSeq&&state!=='off') fetchArea(area); },
       onFail:()=>{ if(seq===tourSeq) drawHotelPins(hs,s.nights); },
@@ -664,7 +664,7 @@ function stepCityTour(i){
       : state==='off' ? '<div class="hint">Connect the worker (VITE_API_BASE) for live hotel rates.</div>'
       : filterRow+(hs.length?`<label class="minihead">Where you could stay — pan or zoom the map to search that area</label>
         <div class="optlist" style="max-height:150px">${hs.slice(0,8).map((h,j)=>`
-          <div class="opt${trip.hotelPicks[s.city]===h.name?' sel':''}" data-h="${j}">
+          <div class="opt${trip.hotelPicks[s.city]?.name===h.name?' sel':''}" data-h="${j}">
             <span class="iata">$${Math.round(h.price/Math.max(s.nights,1))}</span>
             <span class="nm">${h.name}<div class="sub">${h.stars>0?`<span style="color:var(--gold)">${'★'.repeat(Math.min(h.stars,5))}</span>`:''}${h.rating!=null?` ${h.rating}/10`:''}${h.reviews?` · ${h.reviews.toLocaleString()} reviews`:''}</div></span>
           </div>`).join('')}</div>
@@ -685,7 +685,7 @@ function stepCityTour(i){
     const hsNow=hs;
     qcard.querySelectorAll('[data-h]').forEach(o=>o.onclick=()=>{
       const h=hsNow[+o.dataset.h];
-      trip.hotelPicks[s.city]=trip.hotelPicks[s.city]===h.name?undefined:h.name;
+      trip.hotelPicks[s.city]=trip.hotelPicks[s.city]?.name===h.name?undefined:{...h,nights:s.nights};
       render(); pushPins();
     });
     [['fStars','stars'],['fRating','rating'],['fBudget','budget']].forEach(([id,k])=>{

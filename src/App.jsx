@@ -21,12 +21,70 @@ import { bestAlternate } from "./lib/altGateways.js";
 import { serializeTrip, hydrateTrip, tripLocal } from "./lib/tripStore.js";
 import { saveTripCloud, loadTripCloud } from "./api/client.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
-import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels } from "./lib/liveMerge.js";
+import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels, liveHotelRow } from "./lib/liveMerge.js";
+import { AIRPORTS, airportByIata } from "./lib/airports.js";
 import { defaultDepart, buildSchedule, toISO, addDays, fmtDay, fmtShort, dateForDay } from "./lib/dates.js";
 import { Chip, SectionLabel, NightsStepper, PayToggle } from "./components/ui.jsx";
 import { RouteSpine } from "./components/RouteSpine.jsx";
 import { JourneyMap } from "./components/JourneyMap.jsx";
 import { MeridianIntake } from "./components/MeridianIntake.jsx";
+
+/** Airport picker: type an IATA code, airport, or city; pick from matches. */
+function AirportField({ label, value, onPick, allowClear }) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const matches = useMemo(() => {
+    const s = q.trim().toLowerCase();
+    if (s.length < 2) return [];
+    const U = s.toUpperCase();
+    return AIRPORTS
+      .filter((a) => a.iata.startsWith(U) || a.name.toLowerCase().includes(s) || a.city.toLowerCase().includes(s))
+      .sort((a, b) => (a.iata === U ? -1 : b.iata === U ? 1 : (b.large ? 1 : 0) - (a.large ? 1 : 0)))
+      .slice(0, 6);
+  }, [q]);
+  const cur = value ? airportByIata.get(value) : null;
+  return (
+    <div className="relative">
+      <label className="text-xs font-bold block mb-1" style={{ color: T.inkSoft }}>{label}</label>
+      <div className="flex gap-1 items-center">
+        <input
+          value={q}
+          onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder={cur ? `${cur.iata} · ${cur.city}` : value ?? "airport or city…"}
+          className="w-full px-2.5 py-2 rounded-lg text-sm"
+          style={{ border: `1px solid ${T.mist}`, background: T.paper }}
+        />
+        {allowClear && value && (
+          <button
+            onClick={() => onPick(null)} aria-label={`clear ${label}`}
+            className="px-2 py-2 rounded-lg flex-shrink-0" style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}
+          ><X size={12} /></button>
+        )}
+      </div>
+      {open && matches.length > 0 && (
+        <div
+          className="absolute left-0 right-0 mt-1 rounded-lg overflow-hidden"
+          style={{ background: T.card, border: `1px solid ${T.mist}`, zIndex: 30, boxShadow: "0 8px 24px rgba(31,41,51,0.14)" }}
+        >
+          {matches.map((a) => (
+            <button
+              key={a.iata}
+              onMouseDown={(e) => { e.preventDefault(); onPick(a); setQ(""); setOpen(false); }}
+              className="w-full text-left px-2.5 py-1.5 text-xs flex items-center gap-2"
+              style={{ borderBottom: `1px solid ${T.mist}` }}
+            >
+              <b style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{a.iata}</b>
+              <span className="truncate">{a.name}</span>
+              <span className="flex-shrink-0" style={{ color: T.inkSoft }}>{a.city}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const Mark = ({ size = 34 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
@@ -57,7 +115,11 @@ export default function App() {
   const [flightSel, setFlightSel] = useState({});   // { out: optId, back: optId }
   const [flightPay, setFlightPay] = useState({ out: "points", back: "points" });
   const [hotelPicks, setHotelPicks] = useState({});
+  const [tourHotels, setTourHotels] = useState({}); // {cid: live hotel object picked on the map tour}
   const [hotelPay, setHotelPay] = useState({});
+  const [legVia, setLegVia] = useState({ out: null, back: null }); // manual layover hub per leg
+  const [showAllFl, setShowAllFl] = useState({});   // per-leg "show more flights"
+  const [adjOpen, setAdjOpen] = useState(false);    // airports & routing panel
   const [endAt, setEndAt] = useState(null);       // "where do you want to end?" pin
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [originAir, setOriginAir] = useState(null);  // departure airport from the intake
@@ -90,8 +152,8 @@ export default function App() {
   // A true round trip (same airports both ways) unlocks the round-trip
   // fare cache as a fallback for the outbound lookup.
   const mirrorRT = route && route.inGw.gw === route.outGw.gw && depAir === retAir;
-  const liveOut = useLiveLeg(depAir, route?.inGw.gw, departDate, cabinPref, mirrorRT ? schedule?.returnDate : null);
-  const liveBack = useLiveLeg(route?.outGw.gw, retAir, schedule?.returnDate, cabinPref);
+  const liveOut = useLiveLeg(depAir, route?.inGw.gw, departDate, cabinPref, mirrorRT ? schedule?.returnDate : null, legVia.out);
+  const liveBack = useLiveLeg(route?.outGw.gw, retAir, schedule?.returnDate, cabinPref, null, legVia.back);
   const awardsOut = useLiveAwards(depAir, route?.inGw.gw, departDate);
   const awardsBack = useLiveAwards(route?.outGw.gw, retAir, schedule?.returnDate);
   const outLeg = useMemo(
@@ -142,7 +204,14 @@ export default function App() {
   const outId = flightSel.out ?? pickDefault(outLegD);
   const backId = flightSel.back ?? pickDefault(backLegD);
   const fOut = outLegD?.options.find((f) => f.id === outId);
-  const fBack = backLegD?.options.find((f) => f.id === backId);
+  const fBackReal = backLegD?.options.find((f) => f.id === backId);
+  // A chosen round-trip fare on the outbound already contains the return
+  // flight — the itinerary must not dead-end just because the return leg
+  // has nothing separate to select.
+  const fBack = fBackReal ?? (fOut?.roundTrip ? {
+    id: "rt-included", airline: fOut.airline, cabin: fOut.cabin,
+    programId: null, points: null, fees: 0, cash: 0, rtIncluded: true,
+  } : undefined);
   const pathOut = fOut?.points ? bestPath(fOut.programId, fOut.points, balances) : null;
   const pathBack = fBack?.points ? bestPath(fBack.programId, fBack.points, balances) : null;
 
@@ -176,12 +245,12 @@ export default function App() {
   const [saveName, setSaveName] = useState("");
   const [codeInput, setCodeInput] = useState("");
   const [cloud, setCloud] = useState({});
-  const stateBundle = { originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, hotelPrefs, cabinPref, pointsOnly, wCost, balances };
+  const stateBundle = { originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, tourHotels, legVia, hotelPrefs, cabinPref, pointsOnly, wCost, balances };
   useEffect(() => {
     if (step === 0 || !destIds.length) return;
     const t = setTimeout(() => tripLocal.autosave(serializeTrip(stateBundle)), 800);
     return () => clearTimeout(t);
-  }, [step, originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, hotelPrefs, cabinPref, pointsOnly, wCost, balances]);
+  }, [step, originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, tourHotels, legVia, hotelPrefs, cabinPref, pointsOnly, wCost, balances]);
   const applyTrip = (data) => {
     if (!data) return;
     hydrateTrip(data);
@@ -191,6 +260,8 @@ export default function App() {
     setOriginAir(data.originAir ?? null); setHomeAir(data.homeAir ?? null);
     setInGw(data.inGw ?? null); setOutGw(data.outGw ?? null);
     setHotelPicks(data.hotelPicks ?? {});
+    setTourHotels(data.tourHotels ?? {});
+    setLegVia(data.legVia ?? { out: null, back: null });
     if (data.hotelPrefs) setHotelPrefs((p) => ({ ...p, ...data.hotelPrefs }));
     setCabinPref(data.cabinPref ?? "Business"); setPointsOnly(data.pointsOnly ?? true); setWCost(data.wCost ?? 0.5);
     if (data.balances) setBalances(data.balances);
@@ -201,26 +272,40 @@ export default function App() {
   const jr = useMemo(() => jrPassAnalysis(route), [route]);
   const days = useMemo(() => (route ? buildDays(route, nights, originId) : []), [route, nights, originId]);
 
+  // Merge live rates into a city's list and make sure a hotel picked on the
+  // map tour is ALWAYS in it — the itinerary re-searches a different area,
+  // so the pick may not come back on its own (and names arrive differently
+  // cased from the provider).
+  const mergedHotelsFor = (cid) => {
+    const merged = mergeLiveHotels(hotelsFor(cid), liveHotelsMap[cid], nights[cid] ?? 2);
+    const tour = tourHotels[cid];
+    if (!tour) return merged;
+    const row = liveHotelRow(tour, tour.nights ?? nights[cid] ?? 2, "Your pick from the map tour · live rate at pick time");
+    if (merged.hotels.some((h) => h.name.toLowerCase() === row.name.toLowerCase())) return merged;
+    return { ...merged, hotels: [row, ...merged.hotels] };
+  };
+  const pickedName = (cid) => (hotelPicks[cid] ?? "").toLowerCase();
+
   const hotelChoices = useMemo(() => {
     if (!route) return [];
     return route.order.map((cid) => {
-      const { hotels, sample } = mergeLiveHotels(hotelsFor(cid), liveHotelsMap[cid], nights[cid] ?? 2);
+      const { hotels, sample } = mergedHotelsFor(cid);
       const pool = hotels.filter(hotelPasses);
       const list = pool.length ? pool : hotels;
-      const hotel = hotels.find((h) => h.name === hotelPicks[cid]) ?? list[0];
+      const hotel = hotels.find((h) => h.name.toLowerCase() === pickedName(cid)) ?? list[0];
       const n = nights[cid] ?? 2;
       const path = hotel.pts ? bestPath(hotel.pid, hotel.pts * n, balances) : null;
       const requested = hotelPay[cid] ?? (pointsOnly && path ? "points" : path ? "points" : "cash");
       return { city: cid, hotel, nights: n, sample, path, mode: requested === "points" && path ? "points" : "cash" };
     });
-  }, [route, hotelPicks, hotelPay, nights, balances, pointsOnly, liveHotelsMap, hotelPrefs]);
+  }, [route, hotelPicks, tourHotels, hotelPay, nights, balances, pointsOnly, liveHotelsMap, hotelPrefs]);
 
   const ledger = useMemo(() => {
     if (!route || !fOut || !fBack) return null;
     return buildLedger({
       flights: [
         { label: `${depAir} → ${route.inGw.gw}`, f: fOut, mode: pointsOnly || flightPay.out === "points" ? "points" : "cash", path: pathOut },
-        { label: `${route.outGw.gw} → ${retAir}`, f: fBack, mode: pointsOnly || flightPay.back === "points" ? "points" : "cash", path: pathBack },
+        { label: `${route.outGw.gw} → ${retAir}${fBack.rtIncluded ? " (included in the round-trip fare)" : ""}`, f: fBack, mode: fBack.rtIncluded ? "cash" : pointsOnly || flightPay.back === "points" ? "points" : "cash", path: pathBack },
       ],
       hotels: hotelChoices, route, jr,
     });
@@ -303,12 +388,17 @@ export default function App() {
     setInGw(t.arrivalAirport ? { iata: t.arrivalAirport.iata, lat: t.arrivalAirport.lat, lon: t.arrivalAirport.lon } : null);
     setOutGw(t.endAirport ? { iata: t.endAirport.iata, lat: t.endAirport.lat, lon: t.endAirport.lon } : null);
     if (t.hotelPrefs) setHotelPrefs((p) => ({ ...p, ...t.hotelPrefs }));
-    const hp = {};
-    Object.entries(t.hotelPicks ?? {}).forEach(([cityName, hotelName]) => {
+    const hp = {}, th = {};
+    Object.entries(t.hotelPicks ?? {}).forEach(([cityName, pick]) => {
       const idx = t.stops.findIndex((st) => st.name === cityName);
-      if (idx >= 0 && ids[idx]) hp[ids[idx]] = hotelName;
+      const cid = idx >= 0 ? ids[idx] : null;
+      if (!cid || !pick) return;
+      if (typeof pick === "string") { hp[cid] = pick; return; }
+      th[cid] = pick;
+      hp[cid] = liveHotelRow(pick, pick.nights ?? 1).name; // canonical display name
     });
-    setRouteIdx(0); setFlightSel({}); setHotelPicks(hp); setHotelPay({});
+    setRouteIdx(0); setFlightSel({}); setHotelPicks(hp); setTourHotels(th); setHotelPay({});
+    setLegVia({ out: null, back: null }); setShowAllFl({});
     setStep(1);
   };
 
@@ -435,6 +525,37 @@ export default function App() {
               </div>
             </div>
 
+            {/* Manual overrides: airports and forced layovers, no re-plotting */}
+            <div>
+              <button
+                onClick={() => setAdjOpen(!adjOpen)}
+                className="text-xs font-bold px-3 py-2 rounded-xl"
+                style={{ border: `1.5px solid ${T.mist}`, color: T.inkSoft, background: adjOpen ? T.card : T.paper }}
+              >
+                Adjust airports & routing {adjOpen ? "▴" : "▾"}
+              </button>
+              {adjOpen && (
+                <div className="grid md:grid-cols-2 gap-4 rounded-xl p-4 mt-2" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+                  <div className="space-y-2">
+                    <SectionLabel>Outbound</SectionLabel>
+                    <AirportField label="Depart from" value={depAir} onPick={(a) => { if (a) { setOriginAir(a.iata); setFlightSel({}); } }} />
+                    <AirportField label="Land at" value={route.inGw.gw} onPick={(a) => { if (a) { setInGw({ iata: a.iata, lat: a.lat, lon: a.lon }); setFlightSel({}); } }} />
+                    <AirportField label="Connect via (optional)" value={legVia.out} allowClear onPick={(a) => { setLegVia({ ...legVia, out: a?.iata ?? null }); setFlightSel({}); }} />
+                  </div>
+                  <div className="space-y-2">
+                    <SectionLabel>Return</SectionLabel>
+                    <AirportField label="Depart from" value={route.outGw.gw} onPick={(a) => { if (a) { setOutGw({ iata: a.iata, lat: a.lat, lon: a.lon }); setFlightSel({}); } }} />
+                    <AirportField label="Land at" value={retAir} onPick={(a) => { if (a) { setHomeAir(a.iata); setFlightSel({}); } }} />
+                    <AirportField label="Connect via (optional)" value={legVia.back} allowClear onPick={(a) => { setLegVia({ ...legVia, back: a?.iata ?? null }); setFlightSel({}); }} />
+                  </div>
+                  <p className="text-xs md:col-span-2" style={{ color: T.inkSoft }}>
+                    Changing an airport re-prices everything live — no need to re-plot the map. Setting <b>connect via</b>{" "}
+                    makes the system build and price an itinerary through that exact airport, even when through-fares exist.
+                  </p>
+                </div>
+              )}
+            </div>
+
             {/* Long-haul flights with funding paths */}
             <div className="grid md:grid-cols-2 gap-5">
               {[
@@ -452,6 +573,13 @@ export default function App() {
                 });
                 const shown = visible.length ? visible : leg.options.filter((f) => f.cabin === cabinPref);
                 const actualsOnly = liveMode() && !showEst[key];
+                // Collapse long lists behind a "more options" expander; the
+                // selected flight is always kept visible even while collapsed.
+                const cut = 4;
+                const expandedFl = !!showAllFl[key];
+                const flBase = expandedFl ? shown : shown.slice(0, cut);
+                const selRow = shown.find((f) => f.id === sel);
+                const flList = selRow && !flBase.includes(selRow) ? [...flBase, selRow] : flBase;
                 return (
                   <div key={key}>
                     <SectionLabel>{dir}</SectionLabel>
@@ -529,7 +657,7 @@ export default function App() {
                       </p>
                     )}
                     <div className="space-y-2">
-                      {shown.map((f) => {
+                      {flList.map((f) => {
                         const chosen = sel === f.id;
                         const path = f.points ? bestPath(f.programId, f.points, balances) : null;
                         return (
@@ -613,6 +741,17 @@ export default function App() {
                         );
                       })}
                     </div>
+                    {shown.length > cut && (expandedFl || shown.length > flList.length) && (
+                      <button
+                        onClick={() => setShowAllFl({ ...showAllFl, [key]: !showAllFl[key] })}
+                        className="w-full mt-2 py-2 rounded-xl text-xs font-bold"
+                        style={{ border: `1.5px dashed ${T.mist}`, color: T.inkSoft, background: T.paper }}
+                      >
+                        {expandedFl
+                          ? "Show fewer options ▴"
+                          : `Show ${shown.length - flList.length} more option${shown.length - flList.length !== 1 ? "s" : ""} ▾`}
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -705,12 +844,13 @@ export default function App() {
               </div>
               <div className="space-y-4">
                 {route.order.map((cid) => {
-                  const merged = mergeLiveHotels(hotelsFor(cid), liveHotelsMap[cid], nights[cid] ?? 2);
+                  const merged = mergedHotelsFor(cid);
                   const { sample, live } = merged;
-                  const pool = merged.hotels.filter(hotelPasses);
+                  // the user's pick is never hidden by the filter bar
+                  const pool = merged.hotels.filter((h) => hotelPasses(h) || h.name.toLowerCase() === pickedName(cid));
                   const filteredOut = merged.hotels.length - pool.length;
                   const hotels = pool.length ? pool : merged.hotels;
-                  const chosenName = hotelPicks[cid] ?? hotels[0].name;
+                  const chosenName = (hotelPicks[cid] ?? hotels[0].name).toLowerCase();
                   const stay = schedule?.byCity[cid];
                   return (
                     <div key={cid}>
@@ -734,7 +874,7 @@ export default function App() {
                       </div>
                       <div className="grid sm:grid-cols-2 gap-2">
                         {hotels.map((h) => {
-                          const chosen = chosenName === h.name;
+                          const chosen = chosenName === h.name.toLowerCase();
                           const n = nights[cid] ?? 2;
                           const path = h.pts ? bestPath(h.pid, h.pts * n, balances) : null;
                           return (

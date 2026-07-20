@@ -9,7 +9,7 @@ import { cityById } from "../data/world.js";
 /** `ret` (return date) lets the worker fall back to the much richer
  *  round-trip fare cache — pass it only for the outbound leg of a true
  *  round trip (same airports both ways). */
-export function useLiveLeg(fromAir, toAir, date, cabin, ret = null) {
+export function useLiveLeg(fromAir, toAir, date, cabin, ret = null, viaHub = null) {
   const [state, set] = useState({ offers: null, loading: false });
   useEffect(() => {
     if (!liveMode() || !fromAir || !toAir || !date) {
@@ -18,11 +18,11 @@ export function useLiveLeg(fromAir, toAir, date, cabin, ret = null) {
     }
     let on = true;
     set({ offers: null, loading: true });
-    liveFlights(fromAir, toAir, date, cabin, ret).then(
+    liveFlights(fromAir, toAir, date, cabin, ret, viaHub).then(
       (offers) => on && set({ offers, loading: false })
     );
     return () => { on = false; };
-  }, [fromAir, toAir, date, cabin, ret]);
+  }, [fromAir, toAir, date, cabin, ret, viaHub]);
   return state;
 }
 
