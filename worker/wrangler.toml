@@ -3,6 +3,7 @@ main = "index.js"
 compatibility_date = "2026-01-01"
 
 # Set secrets with:
+#   wrangler secret put DUFFEL_KEY           # real bookable flight offers (duffel.com, free tier)
 #   wrangler secret put TRAVELPAYOUTS_TOKEN  # flights (Aviasales cached fares), free
 #   wrangler secret put LITEAPI_KEY           # hotel rates (liteapi.travel, free key)
 #                                             # (Hotellook shut down Oct 2025)

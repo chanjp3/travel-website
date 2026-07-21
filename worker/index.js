@@ -112,6 +112,59 @@ async function tpFlights(env, q, ret = null) {
   });
 }
 
+/* ── Duffel: real bookable itineraries ──────────────────────────────────
+ * When DUFFEL_KEY is set, flight search returns actual offers — real
+ * flights, times, and connections — instead of cached market fares.
+ * Fails soft to the Travelpayouts path on any error. */
+async function duffelFlights(env, q) {
+  const res = await fetch("https://api.duffel.com/air/offer_requests?return_offers=true&supplier_timeout=9000", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.DUFFEL_KEY}`,
+      "Duffel-Version": "v2", "Content-Type": "application/json", Accept: "application/json",
+    },
+    body: JSON.stringify({ data: {
+      slices: [{ origin: q.from, destination: q.to, departure_date: q.date }],
+      passengers: [{ type: "adult" }],
+      cabin_class: q.cabin === "BUSINESS" ? "business" : "economy",
+    } }),
+  });
+  if (!res.ok) throw new Error(`Duffel failed: ${res.status}`);
+  const j = await res.json();
+  const parseISODur = (iso) => {
+    const m = /PT(?:(\d+)H)?(?:(\d+)M)?/.exec(iso ?? "");
+    return m && (m[1] || m[2]) ? (+(m[1] ?? 0)) * 60 + (+(m[2] ?? 0)) : null;
+  };
+  return (j.data?.offers ?? [])
+    .map((o) => {
+      const sl = o.slices?.[0];
+      const segs = sl?.segments ?? [];
+      if (!segs.length || !(+o.total_amount > 0)) return null;
+      const durMin = parseISODur(sl.duration)
+        ?? Math.round((Date.parse(segs[segs.length - 1].arriving_at) - Date.parse(segs[0].departing_at)) / 60000);
+      return {
+        price: +o.total_amount,
+        currency: o.total_currency,
+        carrier: o.owner?.iata_code ?? segs[0].marketing_carrier?.iata_code,
+        cabin: q.cabin === "BUSINESS" ? "BUSINESS" : "ECONOMY",
+        transfers: segs.length - 1,
+        durMin,
+        bookable: true,
+        itineraries: [{
+          duration: durMin != null ? isoDur(durMin) : null,
+          segments: segs.map((s) => ({
+            from: s.origin?.iata_code, to: s.destination?.iata_code,
+            dep: s.departing_at, arr: s.arriving_at,
+            carrier: s.marketing_carrier?.iata_code ?? "", num: s.marketing_carrier_flight_number ?? "",
+          })),
+        }],
+      };
+    })
+    .filter((o) => o && (!o.currency || o.currency === "USD"))
+    .sort((a, b) => a.price - b.price)
+    .slice(0, 10);
+}
+
 /* ── Built connections ──────────────────────────────────────────────────
  * When the fare cache has no direct answer for a route (TPA→NRT), don't
  * give up: price origin→hub and hub→destination separately through the
@@ -382,6 +435,18 @@ export default {
         })) ?? []);
       }
       if (url.pathname === "/api/flights") {
+        // Real bookable offers first, when Duffel is configured.
+        let real = [];
+        if (env.DUFFEL_KEY) {
+          try { real = await duffelFlights(env, q); } catch { /* cached-fare path below */ }
+        }
+        if (real.length) {
+          // A user-forced layover still builds through the chosen hub too.
+          if (q.force && q.via && env.TRAVELPAYOUTS_TOKEN) {
+            return json([...real, ...(await connectionOffers(env, q))]);
+          }
+          return json(real);
+        }
         if (!env.AMADEUS_KEY && env.TRAVELPAYOUTS_TOKEN) {
           // Escalating search: exact one-way → live round-trip fare for the
           // trip's real dates → connections built through hubs. Any answer

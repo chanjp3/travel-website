@@ -677,9 +677,14 @@ export default function App() {
                                     {f.seats != null && f.seats > 0 && (
                                       <Chip tint={T.goldTint ?? T.mist} color={T.gold}>{f.seats} seat{f.seats !== 1 && "s"}</Chip>
                                     )}
+                                    {f.cash != null && +cpp(f) >= 1.7 ? (
+                                      <Chip tint={T.goldTint ?? T.mist} color={T.gold}>🔥 GREAT DEAL</Chip>
+                                    ) : f.cash != null && +cpp(f) >= 1.1 ? (
+                                      <Chip tint={T.pineTint} color={T.pine}>GOOD DEAL</Chip>
+                                    ) : null}
                                   </>
                                 ) : f.live ? (
-                                  <Chip tint={T.pineTint} color={T.pine}>LIVE</Chip>
+                                  <Chip tint={T.pineTint} color={T.pine}>{f.bookable ? "BOOKABLE" : "LIVE"}</Chip>
                                 ) : f.noSpace ? (
                                   <Chip tint={T.flightTint} color={T.flight}>no space this date</Chip>
                                 ) : (
