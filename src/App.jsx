@@ -19,7 +19,7 @@ import { suggestCities } from "./lib/suggest.js";
 import { HOTEL_GROUPS, brandGroupOf } from "./lib/hotelBrands.js";
 import { bestAlternate } from "./lib/altGateways.js";
 import { serializeTrip, hydrateTrip, tripLocal } from "./lib/tripStore.js";
-import { bookLink } from "./lib/bookLinks.js";
+import { bookLink, cashSearchLink } from "./lib/bookLinks.js";
 import { saveTripCloud, loadTripCloud } from "./api/client.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
 import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels, liveHotelRow } from "./lib/liveMerge.js";
@@ -583,7 +583,19 @@ export default function App() {
                 const flList = selRow && !flBase.includes(selRow) ? [...flBase, selRow] : flBase;
                 return (
                   <div key={key}>
-                    <SectionLabel>{dir}</SectionLabel>
+                    <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                      <SectionLabel>{dir}</SectionLabel>
+                      {cashSearchLink(lf, lt, ld, cabinPref) && (
+                        <a
+                          href={cashSearchLink(lf, lt, ld, cabinPref)}
+                          target="_blank" rel="noreferrer"
+                          className="text-xs font-bold mb-2"
+                          style={{ color: T.flight, textDecoration: "underline" }}
+                        >
+                          Compare live on Google Flights ↗
+                        </a>
+                      )}
+                    </div>
                     {loading && actualsOnly && shown.length === 0 ? (
                       <div className="space-y-2">
                         <p className="text-xs mb-1 pulse-dot" style={{ color: T.flight }}>Searching live fares & award space for this date…</p>
