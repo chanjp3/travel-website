@@ -20,29 +20,39 @@ import "./meridian.css";
 
 const SCAFFOLD = `
 <div id="map"></div>
-<div id="brand">
-  <div class="mark"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.5 15.5l-8-4.7V4.2c0-.9-.7-1.7-1.5-1.7s-1.5.8-1.5 1.7v6.6l-8 4.7v2l8-2.5v5.4l-2 1.6v1.5l3.5-1 3.5 1V22l-2-1.6V15l8 2.5v-2z"/></svg></div>
-  <div>
-    <div class="name">Meridian</div>
-    <div class="tag">Points-first route planning</div>
-  </div>
+<div id="banner" aria-hidden="true">
+  <div id="kicker"></div>
+  <div id="bannerQ"></div>
 </div>
 <div id="intro">
   <div class="inner">
-    <div class="kick">A journey in six moves</div>
-    <h1>Meridian<span>Chart your next trip on the map itself</span></h1>
+    <div class="kick">Private trip atelier</div>
+    <h1>Meridian<span>Chart your journey across the night atlas</span></h1>
     <div class="rule"></div>
     <button class="btn red" id="beginBtn">Begin plotting &nbsp;→</button>
   </div>
 </div>
 <div id="qcard"></div>
 <div id="ticket">
-  <div class="tseg" data-step="from"><div class="tl">From</div><div class="tv" id="t-from">———</div></div>
-  <div class="tseg" data-step="date"><div class="tl">Departs</div><div class="tv" id="t-date">———</div></div>
-  <div class="tseg" data-step="to"><div class="tl">To</div><div class="tv" id="t-to">———</div></div>
-  <div class="tseg" data-step="nights"><div class="tl">Nights</div><div class="tv" id="t-nights">—</div></div>
-  <div class="tseg" data-step="stops"><div class="tl">Stops</div><div class="tv" id="t-stops">—</div></div>
-  <div class="tseg" data-step="return"><div class="tl">Returns</div><div class="tv" id="t-return">———</div></div>
+  <div class="rail-head">
+    <div class="mark"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.5 15.5l-8-4.7V4.2c0-.9-.7-1.7-1.5-1.7s-1.5.8-1.5 1.7v6.6l-8 4.7v2l8-2.5v5.4l-2 1.6v1.5l3.5-1 3.5 1V22l-2-1.6V15l8 2.5v-2z"/></svg></div>
+    <div>
+      <div class="brand">Meridian <em>Noir</em></div>
+      <div class="brand-sub">Points-first itineraries</div>
+    </div>
+  </div>
+  <div id="railBody">
+    <div class="tseg" data-step="from"><div class="tl">From</div><div class="tv" id="t-from">———</div></div>
+    <div class="tseg" data-step="date"><div class="tl">Departs</div><div class="tv" id="t-date">———</div></div>
+    <div class="tseg" data-step="to"><div class="tl">To</div><div class="tv" id="t-to">———</div></div>
+    <div class="tseg" data-step="nights"><div class="tl">Nights</div><div class="tv" id="t-nights">—</div></div>
+    <div class="tseg" data-step="stops"><div class="tl">Stops</div><div class="tv" id="t-stops">—</div></div>
+    <div class="tseg" data-step="return"><div class="tl">Returns</div><div class="tv" id="t-return">———</div></div>
+  </div>
+  <div class="rail-foot">
+    <span id="footStatus">Awaiting departure</span>
+    <button id="railRestart">Start over</button>
+  </div>
 </div>
 <div id="toast"></div>
 `;
@@ -186,16 +196,24 @@ function showCard(html){
   qcard.innerHTML='<button class="qmin" id="qmin" aria-label="Minimize card" title="Minimize — use the map">—</button>'+html;
   qcard.classList.remove('show','min');
   requestAnimationFrame(()=>requestAnimationFrame(()=>qcard.classList.add('show')));
+  // mirror the step's question into the cinematic top banner
+  const bq=container.querySelector('#bannerQ'), bk=container.querySelector('#kicker');
+  if(bq){
+    const q=qcard.querySelector('.question'), e=qcard.querySelector('.eyebrow');
+    bq.textContent=q?q.textContent:''; if(bk) bk.textContent=e?e.textContent:'';
+  }
   const mb=$('#qmin');
   mb.onclick=(e)=>{ e.stopPropagation(); qcard.classList.toggle('min'); mb.textContent=qcard.classList.contains('min')?'+':'—'; };
   qcard.onclick=()=>{ if(qcard.classList.contains('min')){ qcard.classList.remove('min'); mb.textContent='—'; } };
 }
 function hideCard(){ qcard.classList.remove('show'); }
+const FOOT_LABELS={from:'Choosing origin',date:'Setting departure',to:'Choosing destination',nights:'Allocating nights',stops:'Plotting the route',return:'Return & home'};
 function ticket(seg,val,active){
   const el = $('#t-'+seg);
   if(val!==undefined && val!==null){ el.innerHTML=val; el.closest('.tseg').classList.add('done'); }
   container.querySelectorAll('.tseg').forEach(s=>s.classList.remove('active'));
   if(active) document.querySelector(`.tseg[data-step="${active}"]`)?.classList.add('active');
+  const fs=$('#footStatus'); if(fs) fs.textContent=active?FOOT_LABELS[active]??'En route':'Journey plotted';
 }
 
 // typeahead
@@ -300,6 +318,17 @@ function setCountryMode(on){ cSel.classed('hoverable',on); }
 function markCountry(f){
   cSel.classed('selected',d=>d===f);
 }
+
+/** Full restart — from the rail's Start over button or the summary card. */
+function resetTrip(){
+  hideCard(); hideDetailMap(); tourSeq++;
+  gMarkers.selectAll('.hotelpin').remove();
+  Object.assign(trip,{date:null,origin:{country:null,city:null,airport:null},dest:{country:null,gwCity:null,airport:null},nights:0,stops:[],endCity:null,endAirport:null,hotelPicks:{},home:null,legModes:[]});
+  container.querySelectorAll('.tseg').forEach(s=>s.classList.remove('done'));
+  ['from','date','to','nights','stops','return'].forEach(k=>{ const el=$('#t-'+k); if(el) el.textContent='———'; });
+  stepOriginCountry();
+}
+container.querySelector('#railRestart')?.addEventListener('click',resetTrip);
 
 /* ---- 1. origin country + date ---- */
 function stepOriginCountry(){
@@ -873,11 +902,7 @@ function stepSummary(){
     };
     $('#editBtn').onclick=()=>{ hideCard(); gArcs.selectAll('*').remove();
       gMarkers.selectAll('.homebadge').remove(); zoomToFeature(trip.dest.country).then(()=>stepItinerary()); };
-    $('#restartBtn').onclick=()=>{ hideCard();
-      Object.assign(trip,{date:null,origin:{country:null,city:null,airport:null},dest:{country:null,gwCity:null,airport:null},nights:0,stops:[],endCity:null,endAirport:null,hotelPicks:{},home:null,legModes:[]});
-      container.querySelectorAll('.tseg').forEach(s=>s.classList.remove('done'));
-      ['from','date','to','nights','stops','return'].forEach(k=>{ const el=$('#t-'+k); if(el) el.textContent='———'; });
-      stepOriginCountry(); };
+    $('#restartBtn').onclick=resetTrip;
   }, RM?0:1100);
 }
 function flyPlane(leg){
