@@ -623,10 +623,17 @@ export default function App() {
                     {loading && shown.length > 0 && (
                       <p className="text-xs mb-2 pulse-dot" style={{ color: T.flight }}>Still searching — more live results may land…</p>
                     )}
-                    {leg.live && (
+                    {leg.live && !leg.options.some((f) => f.testData) && (
                       <p className="text-xs mb-2" style={{ color: T.pine }}>
                         <b>Live fares loaded</b> — real itineraries and prices for this date; ¢/pt values use them.
                         {leg.awardsLive && leg.options.some((f) => f.awardLive) && <> <b>Award space verified via Seats.aero</b> — LIVE AWARD rows are bookable today.</>}
+                      </p>
+                    )}
+                    {leg.options.some((f) => f.testData) && (
+                      <p className="text-xs mb-2" style={{ color: T.flight }}>
+                        <b>Duffel is in test mode</b> — these flights are simulated (fake carriers like "ZZ",
+                        nonstops that don't exist). The wiring works; swap the DUFFEL_KEY secret for your
+                        live token and real bookable fares flow through.
                       </p>
                     )}
                     {pointsOnly && !hasAward && shown.length > 0 && (
@@ -708,7 +715,9 @@ export default function App() {
                                     ) : null}
                                   </>
                                 ) : f.live ? (
-                                  <Chip tint={T.pineTint} color={T.pine}>{f.bookable ? "BOOKABLE" : "LIVE"}</Chip>
+                                  f.testData
+                                    ? <Chip tint={T.flightTint} color={T.flight}>TEST DATA</Chip>
+                                    : <Chip tint={T.pineTint} color={T.pine}>{f.bookable ? "BOOKABLE" : "LIVE"}</Chip>
                                 ) : f.noSpace ? (
                                   <Chip tint={T.flightTint} color={T.flight}>no space this date</Chip>
                                 ) : (

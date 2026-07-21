@@ -150,6 +150,9 @@ async function duffelFlights(env, q) {
         transfers: segs.length - 1,
         durMin,
         bookable: true,
+        // Sandbox tokens return simulated flights (fake nonstops, the "ZZ"
+        // carrier) — flag them so the UI never presents them as real.
+        ...(env.DUFFEL_KEY.startsWith("duffel_test") ? { testData: true } : {}),
         itineraries: [{
           duration: durMin != null ? isoDur(durMin) : null,
           segments: segs.map((s) => ({
