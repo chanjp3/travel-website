@@ -259,15 +259,22 @@ async function seatsGet(env, url) {
   return res.json();
 }
 
+const shiftDate = (d, n) => {
+  const t = new Date(d + "T00:00:00Z");
+  t.setUTCDate(t.getUTCDate() + n);
+  return t.toISOString().slice(0, 10);
+};
+
 /** Cached award availability for a route+date, one row per program.
- *  Cabin blocks only when bookable. */
-async function seatsSearch(env, from, to, date) {
+ *  Cabin blocks only when bookable. flexDays widens the window (±N) so
+ *  the app can say "no space on your date — but there IS on the 17th". */
+async function seatsSearch(env, from, to, date, flexDays = 0) {
   const su = new URL("https://seats.aero/partnerapi/search");
   su.searchParams.set("origin_airport", from);
   su.searchParams.set("destination_airport", to);
-  su.searchParams.set("start_date", date);
-  su.searchParams.set("end_date", date);
-  su.searchParams.set("take", "100");
+  su.searchParams.set("start_date", flexDays ? shiftDate(date, -flexDays) : date);
+  su.searchParams.set("end_date", flexDays ? shiftDate(date, flexDays) : date);
+  su.searchParams.set("take", flexDays ? "300" : "100");
   const j = await seatsGet(env, su.toString());
   const cabin = (a, c) => (a[`${c}Available`] ? {
     miles: +a[`${c}MileageCost`] || null,
@@ -525,14 +532,17 @@ export default {
       }
       if (url.pathname === "/api/awards") {
         if (!env.SEATSAERO_KEY) return json({ error: "seats.aero not configured" }, 501);
-        const rows = await seatsSearch(env, q.from, q.to, q.date);
-        const hasSpace = rows.some((r) => r.economy || r.business);
+        const rows = await seatsSearch(env, q.from, q.to, q.date, Math.min(+q.flex || 0, 3));
+        // Only the exact requested date counts as "the answer" — nearby-date
+        // rows ride along so the app can offer a date shift.
+        const exact = rows.filter((r) => r.date === q.date);
+        const hasSpace = exact.some((r) => r.economy || r.business);
         if (hasSpace) {
           // Real times & flight numbers for the rows the app will show.
-          if (q.detail) await attachTripDetail(env, rows);
+          if (q.detail) await attachTripDetail(env, exact);
           return json(rows);
         }
-        // No direct award space → try two-booking plans through the hubs.
+        // No direct award space that day → try two-booking plans via hubs.
         if (!q.via) return json(rows);
         return json([...rows, ...(await awardConnections(env, q))]);
       }

@@ -19,6 +19,7 @@ import { suggestCities } from "./lib/suggest.js";
 import { HOTEL_GROUPS, brandGroupOf } from "./lib/hotelBrands.js";
 import { bestAlternate } from "./lib/altGateways.js";
 import { serializeTrip, hydrateTrip, tripLocal } from "./lib/tripStore.js";
+import { bookLink } from "./lib/bookLinks.js";
 import { saveTripCloud, loadTripCloud } from "./api/client.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
 import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels, liveHotelRow } from "./lib/liveMerge.js";
@@ -157,12 +158,12 @@ export default function App() {
   const awardsOut = useLiveAwards(depAir, route?.inGw.gw, departDate);
   const awardsBack = useLiveAwards(route?.outGw.gw, retAir, schedule?.returnDate);
   const outLeg = useMemo(
-    () => mergeLiveAwards(mergeLiveLeg(outLegEst, liveOut.offers, cabinPref), awardsOut.rows),
-    [outLegEst, liveOut.offers, cabinPref, awardsOut.rows]
+    () => mergeLiveAwards(mergeLiveLeg(outLegEst, liveOut.offers, cabinPref), awardsOut.rows, departDate),
+    [outLegEst, liveOut.offers, cabinPref, awardsOut.rows, departDate]
   );
   const backLeg = useMemo(
-    () => mergeLiveAwards(mergeLiveLeg(backLegEst, liveBack.offers, cabinPref), awardsBack.rows),
-    [backLegEst, liveBack.offers, cabinPref, awardsBack.rows]
+    () => mergeLiveAwards(mergeLiveLeg(backLegEst, liveBack.offers, cabinPref), awardsBack.rows, schedule?.returnDate),
+    [backLegEst, liveBack.offers, cabinPref, awardsBack.rows, schedule?.returnDate]
   );
   const liveHotelsMap = useLiveHotelsMap(schedule);
 
@@ -559,9 +560,9 @@ export default function App() {
             {/* Long-haul flights with funding paths */}
             <div className="grid md:grid-cols-2 gap-5">
               {[
-                { key: "out", dir: `Outbound · ${depAir} → ${route.inGw.gw} · ${fmtDay(departDate)}`, leg: outLegD, sel: outId, loading: liveOut.loading || awardsOut.loading },
-                { key: "back", dir: `Return · ${route.outGw.gw} → ${retAir}${schedule ? ` · ${fmtDay(schedule.returnDate)}` : ""}`, leg: backLegD, sel: backId, loading: liveBack.loading || awardsBack.loading },
-              ].map(({ key, dir, leg, sel, loading }) => {
+                { key: "out", dir: `Outbound · ${depAir} → ${route.inGw.gw} · ${fmtDay(departDate)}`, leg: outLegD, sel: outId, loading: liveOut.loading || awardsOut.loading, lf: depAir, lt: route.inGw.gw, ld: departDate },
+                { key: "back", dir: `Return · ${route.outGw.gw} → ${retAir}${schedule ? ` · ${fmtDay(schedule.returnDate)}` : ""}`, leg: backLegD, sel: backId, loading: liveBack.loading || awardsBack.loading, lf: route.outGw.gw, lt: retAir, ld: schedule?.returnDate },
+              ].map(({ key, dir, leg, sel, loading, lf, lt, ld }) => {
                 // Points-only hides cash rows — but never at the cost of a dead
                 // end. A leg with no fundable award falls back to every way of
                 // getting there, including connections the system built itself.
@@ -633,6 +634,29 @@ export default function App() {
                         <b>No fundable award space on this leg</b> — showing every way to get there anyway,
                         including connections built from separate tickets.
                       </p>
+                    )}
+                    {leg.nearbyAwards?.length > 0 && (
+                      <div className="text-xs mb-2 rounded-xl p-3" style={{ background: T.card, border: `1px dashed ${T.pine}` }}>
+                        <b style={{ color: T.pine }}>Award space on nearby dates:</b>{" "}
+                        {leg.nearbyAwards.map((n, i) => (
+                          <span key={`${n.date}-${n.cabin}`}>
+                            {i > 0 && " · "}
+                            {key === "out" ? (
+                              <button
+                                onClick={() => { setDepartDate(n.date); setFlightSel({}); }}
+                                className="font-bold underline"
+                                style={{ color: T.flight }}
+                              >{fmtShort(n.date)}</button>
+                            ) : (
+                              <b>{fmtShort(n.date)}</b>
+                            )}
+                            {" "}{(n.miles / 1000).toFixed(0)}K {SOURCES[n.programId]?.short ?? ""} {n.cabin}
+                          </span>
+                        ))}
+                        {key === "out"
+                          ? <span style={{ color: T.inkSoft }}> — tap a date to move your departure.</span>
+                          : <span style={{ color: T.inkSoft }}> — adjust nights on the map to shift your return.</span>}
+                      </div>
                     )}
                     {altTips[key] && (
                       <button
@@ -736,6 +760,17 @@ export default function App() {
                               <p className="text-xs mt-1" style={{ color: path ? T.inkSoft : T.flight }}>
                                 {describePath(path, f.programId)}
                               </p>
+                            )}
+                            {f.awardLive && !f.twoBookings && bookLink(f.programId, lf, lt, ld, f.cabin) && (
+                              <a
+                                href={bookLink(f.programId, lf, lt, ld, f.cabin)}
+                                target="_blank" rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-xs font-bold inline-block mt-1.5"
+                                style={{ color: T.flight, textDecoration: "underline" }}
+                              >
+                                Verify & book on {SOURCES[f.programId]?.short ?? "the program"} ↗
+                              </a>
                             )}
                             {!pointsOnly && chosen && f.points && (
                               <div className="mt-2" onClick={(e) => e.stopPropagation()}>

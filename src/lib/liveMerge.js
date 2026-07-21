@@ -127,10 +127,14 @@ function applyAwardHit(f, hit) {
  *   live space in a program with no chart row → appended as its own row, so
  *   nothing Seats.aero finds is ever thrown away
  */
-export function mergeLiveAwards(leg, rows) {
+export function mergeLiveAwards(leg, rows, exactDate = null) {
   if (!leg || rows == null) return leg;
+  // Flexible searches return nearby dates too — only the exact date prices
+  // the rows; the rest becomes a "space exists on the 17th" nudge.
+  const exact = exactDate ? rows.filter((r) => !r.date || r.date === exactDate) : rows;
+  const nearbyRaw = exactDate ? rows.filter((r) => r.date && r.date !== exactDate) : [];
   const best = {}; // programId → { cabinKey → cheapest block }
-  for (const r of rows) {
+  for (const r of exact) {
     const pid = SEATSAERO_SOURCES[r.source];
     if (!pid) continue;
     for (const ck of ["economy", "business"]) {
@@ -140,6 +144,20 @@ export function mergeLiveAwards(leg, rows) {
       if (!cur || block.miles < cur.miles) best[pid][ck] = { ...block, via: r.via ?? null };
     }
   }
+  const nearBest = {}; // date|cabin → cheapest nearby block
+  for (const r of nearbyRaw) {
+    const pid = SEATSAERO_SOURCES[r.source];
+    if (!pid) continue;
+    for (const ck of ["economy", "business"]) {
+      const block = r[ck];
+      if (!block?.miles) continue;
+      const k = `${r.date}|${ck}`;
+      if (!nearBest[k] || block.miles < nearBest[k].miles) {
+        nearBest[k] = { date: r.date, cabin: ck === "economy" ? "Economy" : "Business", miles: block.miles, programId: pid };
+      }
+    }
+  }
+  const nearbyAwards = Object.values(nearBest).sort((a, b) => a.miles - b.miles).slice(0, 4);
   const matched = new Set();
   const options = leg.options.map((f) => {
     if (!f.points || !f.programId) return f;
@@ -166,7 +184,7 @@ export function mergeLiveAwards(leg, rows) {
   options.sort((a, b) =>
     a.cabin === b.cabin ? (a.points ?? 9e9) - (b.points ?? 9e9) : a.cabin === "Economy" ? -1 : 1
   );
-  return { ...leg, options, awardsLive: true };
+  return { ...leg, options, awardsLive: true, nearbyAwards };
 }
 const invert = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [v, k]));
 
