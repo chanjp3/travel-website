@@ -15,25 +15,36 @@ export function buildLedger({ flights, hotels, route, jr }) {
 
   // ── long-haul flights ──
   flights.forEach(({ label, f, mode, path }) => {
-    retail += f.cash;
+    retail += f.cash ?? 0;
     if (mode === "points" && path && f.points) {
       spend(path.source, path.srcPts);
-      cash += f.fees;
+      cash += f.fees ?? 0;
       lines.push({
         group: "Flights", label: `${label} · ${f.airline} ${f.cabin}`,
-        value: `${(path.srcPts / 1000).toFixed(0)}K ${SOURCES[path.source].short} + $${f.fees}`,
+        value: `${(path.srcPts / 1000).toFixed(0)}K ${SOURCES[path.source].short} + $${f.fees ?? 0}`,
         sub: path.type === "transfer" ? `→ ${SOURCES[f.programId].short}` : null,
         est: f.est,
       });
+    } else if (f.points && f.cash == null) {
+      // Award-only row (live space with no cash comparison): price it in
+      // miles — never assume a cash figure that doesn't exist.
+      cash += f.fees ?? 0;
+      lines.push({
+        group: "Flights", label: `${label} · ${f.airline} ${f.cabin}`,
+        value: `${(f.points / 1000).toFixed(0)}K ${SOURCES[f.programId]?.short ?? "miles"} + $${f.fees ?? 0}`,
+        sub: path ? null : "needs miles held in that program — no card transfer path",
+        est: f.est,
+      });
     } else {
-      cash += f.cash;
-      lines.push({ group: "Flights", label: `${label} · ${f.airline} ${f.cabin}`, value: `$${f.cash.toLocaleString()} cash`, est: f.est });
+      const c = f.cash ?? 0;
+      cash += c;
+      lines.push({ group: "Flights", label: `${label} · ${f.airline} ${f.cabin}`, value: `$${c.toLocaleString()} cash`, est: f.est });
     }
   });
 
   // ── hotels ──
   hotels.forEach(({ hotel, nights, mode, path }) => {
-    retail += hotel.cash * nights;
+    retail += (hotel.cash ?? 0) * nights;
     if (mode === "points" && path && hotel.pts) {
       spend(path.source, path.srcPts);
       lines.push({
@@ -42,8 +53,8 @@ export function buildLedger({ flights, hotels, route, jr }) {
         sub: path.type === "transfer" ? `→ ${SOURCES[hotel.pid].short} (${((hotel.pts * nights) / 1000).toFixed(0)}K)` : null,
       });
     } else {
-      cash += hotel.cash * nights;
-      lines.push({ group: "Hotels", label: `${hotel.name} · ${nights} nt`, value: `$${(hotel.cash * nights).toLocaleString()} cash` });
+      cash += (hotel.cash ?? 0) * nights;
+      lines.push({ group: "Hotels", label: `${hotel.name} · ${nights} nt`, value: `$${((hotel.cash ?? 0) * nights).toLocaleString()} cash` });
     }
   });
 
