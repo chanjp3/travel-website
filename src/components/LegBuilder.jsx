@@ -237,7 +237,7 @@ export function LegBuilder({ cabinPref, balances, onExit }) {
   const inner = (
     <div className="max-w-2xl mx-auto px-4 py-6 space-y-5">
       <div className="flex items-center justify-between gap-2">
-        <h2 style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 700, fontSize: 20, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+        <h2 style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 700, fontSize: 20, letterSpacing: "0.12em", textTransform: "uppercase" }}>
           Flight-first builder
         </h2>
         <button onClick={onExit} className="py-2 px-3 rounded-xl text-xs font-bold flex items-center gap-1" style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}>
@@ -327,7 +327,7 @@ export function LegBuilder({ cabinPref, balances, onExit }) {
           <div>
             <button
               onClick={() => { setDraft({ from: currentAir, to: null, date: nextDate, cabin: draft.cabin, isReturn: false, mode: "air" }); setPhase("decide"); }}
-              className="py-3 px-5 rounded-xl font-bold text-sm text-white" style={{ background: T.ink }}
+              className="py-3 px-5 rounded-xl font-bold text-sm text-white" style={{ background: T.deep }}
             >Continue →</button>
           </div>
         </div>
@@ -400,7 +400,7 @@ export function LegBuilder({ cabinPref, balances, onExit }) {
               )}
             </div>
           ))}
-          <div className="rounded-xl p-4 text-white space-y-1" style={{ background: T.ink }}>
+          <div className="rounded-xl p-4 text-white space-y-1" style={{ background: T.deep }}>
             <p className="text-sm font-bold">Cash out of pocket: {usd(totals.cash)}</p>
             {totals.ptsLines.map((p, i) => <p key={i} className="text-xs opacity-90">{p}</p>)}
           </div>
@@ -409,7 +409,7 @@ export function LegBuilder({ cabinPref, balances, onExit }) {
               onClick={() => { setLegs([]); setStaysByLeg({}); setDraft({ from: homeAir, to: null, date: defaultDepart(), cabin: draft.cabin, isReturn: false, mode: "air" }); setPhase("route"); try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ } }}
               className="py-2.5 px-4 rounded-xl font-bold text-xs" style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}
             >Start over</button>
-            <button onClick={onExit} className="py-2.5 px-4 rounded-xl font-bold text-xs text-white" style={{ background: T.ink }}>
+            <button onClick={onExit} className="py-2.5 px-4 rounded-xl font-bold text-xs text-white" style={{ background: T.deep }}>
               <Check size={13} className="inline mr-1" />Done — back to the map
             </button>
           </div>

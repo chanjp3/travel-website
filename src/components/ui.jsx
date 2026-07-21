@@ -20,7 +20,7 @@ export function NightsStepper({ n, setN }) {
   return (
     <span className="inline-flex items-center rounded-lg overflow-hidden" style={{ border: `1px solid ${T.mist}` }}>
       <button onClick={() => setN(Math.max(1, n - 1))} className="px-2 py-1 font-bold" style={{ background: T.paper }}>−</button>
-      <span className="px-2.5 py-1 font-bold" style={{ background: "#fff", fontFamily: "'IBM Plex Mono', monospace" }}>{n}</span>
+      <span className="px-2.5 py-1 font-bold" style={{ background: T.card, fontFamily: "'IBM Plex Mono', monospace" }}>{n}</span>
       <button onClick={() => setN(Math.min(7, n + 1))} className="px-2 py-1 font-bold" style={{ background: T.paper }}>+</button>
     </span>
   );
@@ -37,7 +37,7 @@ export function PayToggle({ mode, setMode, disabled }) {
           className="px-2 py-1 disabled:opacity-40"
           style={{
             background: mode === m ? (m === "points" ? T.pine : T.ink) : T.paper,
-            color: mode === m ? "#fff" : T.inkSoft,
+            color: mode === m ? "#04060B" : T.inkSoft,
           }}
         >
           {m}

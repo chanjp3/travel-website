@@ -50,7 +50,7 @@ const SpineNode = ({ label, sub, main, mode }) => (
         width: main ? 40 : 30, height: main ? 40 : 30,
         background: main ? T.ink : mode === "flight" ? T.flightTint : T.railTint,
         border: `2.5px solid ${main ? T.ink : mode === "flight" ? T.flight : T.rail}`,
-        color: main ? "#fff" : mode === "flight" ? T.flight : T.rail,
+        color: main ? "#04060B" : mode === "flight" ? T.flight : T.rail,
       }}
     >
       {main ? <TrainFront size={18} /> : <Plane size={14} />}

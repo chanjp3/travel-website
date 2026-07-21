@@ -353,13 +353,13 @@ export default function App() {
     <div className="min-h-screen" style={{ background: T.paper, color: T.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
       <header
         className="border-b sticky top-0 z-40"
-        style={{ borderColor: T.mist, background: "rgba(253,251,245,0.88)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }}
+        style={{ borderColor: T.mist, background: "rgba(6,10,18,.85)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }}
       >
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Mark />
             <div>
-              <h1 style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 700, fontSize: 19, letterSpacing: "0.28em", textTransform: "uppercase" }}>Meridian</h1>
+              <h1 style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 700, fontSize: 19, letterSpacing: "0.28em", textTransform: "uppercase" }}>Meridian</h1>
               <p className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>Points-first route planning</p>
             </div>
           </div>
@@ -390,14 +390,14 @@ export default function App() {
               className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap"
               style={{
                 background: i === step ? T.ink : "transparent",
-                color: i === step ? "#fff" : i < step ? T.rail : T.inkSoft,
+                color: i === step ? "#04060B" : i < step ? T.rail : T.inkSoft,
                 border: `1px solid ${i === step ? T.ink : T.mist}`,
               }}
             >
               <span className="flex items-center justify-center rounded-full" style={{
                 width: 16, height: 16, fontSize: 10,
-                background: i < step ? T.rail : i === step ? "#fff" : T.mist,
-                color: i < step ? "#fff" : i === step ? T.ink : T.inkSoft,
+                background: i < step ? T.rail : i === step ? T.flight : T.card,
+                color: i < step ? "#04060B" : i === step ? "#04060B" : T.inkSoft,
               }}>{i < step ? <Check size={10} /> : i + 1}</span>
               {s}
             </button>
@@ -411,14 +411,14 @@ export default function App() {
           <button
             onClick={() => setTripsOpen(true)}
             className="fixed top-5 right-5 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold"
-            style={{ zIndex: 46, border: `1px solid rgba(30,43,51,.2)`, color: T.ink, background: "rgba(253,251,245,.94)", boxShadow: "0 2px 10px rgba(30,43,51,.15)" }}
+            style={{ zIndex: 46, border: `1px solid ${T.mist}`, color: T.ink, background: "rgba(8,13,24,.92)", boxShadow: "0 2px 14px rgba(0,0,0,.5)" }}
           >
             <MapPin size={13} style={{ color: T.flight }} /> Trips
           </button>
           <button
             onClick={() => setLegBuilderOpen(true)}
             className="fixed top-5 right-24 mr-2 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold"
-            style={{ zIndex: 46, border: `1px solid rgba(30,43,51,.2)`, color: T.ink, background: "rgba(253,251,245,.94)", boxShadow: "0 2px 10px rgba(30,43,51,.15)" }}
+            style={{ zIndex: 46, border: `1px solid ${T.mist}`, color: T.ink, background: "rgba(8,13,24,.92)", boxShadow: "0 2px 14px rgba(0,0,0,.5)" }}
           >
             <Plane size={13} style={{ color: T.flight }} /> Flight-first builder
           </button>
@@ -435,7 +435,7 @@ export default function App() {
           <div className="rounded-xl p-8 text-center" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
             <p className="text-sm font-bold">No destinations yet</p>
             <p className="text-xs mt-1" style={{ color: T.inkSoft }}>Pick a primary destination on the brief step and the builder takes it from there.</p>
-            <button onClick={() => setStep(0)} className="mt-4 py-2.5 px-5 rounded-xl font-bold text-sm text-white" style={{ background: T.ink }}>
+            <button onClick={() => setStep(0)} className="mt-4 py-2.5 px-5 rounded-xl font-bold text-sm text-white" style={{ background: T.deep }}>
               Back to the brief
             </button>
           </div>
@@ -792,7 +792,7 @@ export default function App() {
               <button onClick={() => setStep(0)} className="py-3 px-4 rounded-xl font-bold text-sm flex items-center gap-1" style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}>
                 <ChevronLeft size={16} /> Back to the map
               </button>
-              <button onClick={() => setStep(2)} className="py-3 px-5 rounded-xl font-bold text-sm flex items-center gap-2 text-white" style={{ background: T.ink }}>
+              <button onClick={() => setStep(2)} className="py-3 px-5 rounded-xl font-bold text-sm flex items-center gap-2 text-white" style={{ background: T.deep }}>
                 Itinerary & cost <ChevronRight size={16} />
               </button>
             </div>
@@ -802,9 +802,9 @@ export default function App() {
         {/* ── STEP 3 · ITINERARY & COST ── */}
         {step === 2 && route && fOut && fBack && ledger && (
           <div className="space-y-8">
-            <div className="rounded-2xl p-5 text-white" style={{ background: T.ink }}>
+            <div className="rounded-2xl p-5 text-white" style={{ background: T.deep }}>
               <div className="flex items-baseline justify-between flex-wrap gap-2">
-                <h2 style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 700, fontSize: 22 }}>
+                <h2 style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 700, fontSize: 22 }}>
                   {days.length} days · {origin.name} → {route.order.map((c) => cityById[c].name).join(" → ")}
                 </h2>
                 <span className="text-xs opacity-70" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
@@ -853,7 +853,7 @@ export default function App() {
                         className="px-2 py-1 rounded-full text-xs font-semibold"
                         style={{
                           background: hotelPrefs[k] === v ? T.ink : T.paper,
-                          color: hotelPrefs[k] === v ? "#fff" : T.inkSoft,
+                          color: hotelPrefs[k] === v ? "#04060B" : T.inkSoft,
                           border: `1px solid ${hotelPrefs[k] === v ? T.ink : T.mist}`,
                         }}
                       >{l}</button>
@@ -991,7 +991,7 @@ export default function App() {
                   <div key={d.day} className="rounded-xl p-4 flex gap-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
                     <div className="flex flex-col items-center" style={{ minWidth: 52 }}>
                       <span className="text-xs font-bold uppercase tracking-wide" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>Day</span>
-                      <span style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 900, fontSize: 26, lineHeight: 1 }}>{d.day}</span>
+                      <span style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 900, fontSize: 26, lineHeight: 1 }}>{d.day}</span>
                       {schedule && (
                         <span className="text-xs mt-1 whitespace-nowrap" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
                           {fmtShort(dateForDay(schedule, d.day))}
@@ -999,7 +999,7 @@ export default function App() {
                       )}
                     </div>
                     <div className="flex-1">
-                      <div className="font-bold text-sm mb-2" style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontSize: 15 }}>{d.title}</div>
+                      <div className="font-bold text-sm mb-2" style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontSize: 15 }}>{d.title}</div>
                       <div className="space-y-1.5">
                         {d.items.map((it, i) => (
                           <div key={i} className="flex items-start gap-2 text-sm">
@@ -1038,7 +1038,7 @@ export default function App() {
         <div className="max-w-5xl mx-auto px-4 py-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="flex items-center gap-2.5">
             <Mark size={24} />
-            <span style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 700, fontSize: 14, letterSpacing: "0.24em", textTransform: "uppercase" }}>Meridian</span>
+            <span style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 700, fontSize: 14, letterSpacing: "0.24em", textTransform: "uppercase" }}>Meridian</span>
           </div>
           <p className="text-xs" style={{ color: T.inkSoft, maxWidth: "58ch" }}>
             Fares and hotel rates refresh live for your dates; award space is verified where marked.
@@ -1050,14 +1050,14 @@ export default function App() {
 
       {tripsOpen && (
         <div className="fixed inset-0 z-50" onClick={() => setTripsOpen(false)}>
-          <div className="absolute inset-0" style={{ background: "rgba(30,43,51,0.35)" }} />
+          <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.55)" }} />
           <aside
             onClick={(e) => e.stopPropagation()}
             className="absolute right-0 top-0 h-full w-[400px] max-w-[92vw] overflow-y-auto p-5 space-y-4 step-in"
-            style={{ background: T.paper, boxShadow: "-16px 0 48px rgba(30,43,51,.25)" }}
+            style={{ background: T.paper, boxShadow: "-16px 0 48px rgba(0,0,0,.6)" }}
           >
             <div className="flex items-center justify-between">
-              <h2 style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 600, fontSize: 20 }}>Your trips</h2>
+              <h2 style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 600, fontSize: 20 }}>Your trips</h2>
               <button onClick={() => setTripsOpen(false)} style={{ color: T.inkSoft }}><X size={18} /></button>
             </div>
 
@@ -1078,7 +1078,7 @@ export default function App() {
                   />
                   <button
                     onClick={() => { if (saveName.trim()) { tripLocal.save(saveName.trim(), serializeTrip(stateBundle)); setSaveName(""); } }}
-                    className="px-3 py-2 rounded-lg text-xs font-bold text-white" style={{ background: T.ink }}
+                    className="px-3 py-2 rounded-lg text-xs font-bold text-white" style={{ background: T.deep }}
                   >Save</button>
                 </div>
               )}
@@ -1127,7 +1127,7 @@ export default function App() {
                     if (error) setCloud({ err: error });
                     else { setCloud({}); applyTrip(hydrateTrip(data)); }
                   }}
-                  className="px-3 py-2 rounded-lg text-xs font-bold text-white" style={{ background: T.ink }}
+                  className="px-3 py-2 rounded-lg text-xs font-bold text-white" style={{ background: T.deep }}
                 >Load</button>
               </div>
             </div>
@@ -1144,7 +1144,7 @@ export default function App() {
             style={{ background: T.paper, boxShadow: "-16px 0 48px rgba(22,24,29,.25)" }}
           >
             <div className="flex items-center justify-between">
-              <h2 style={{ fontFamily: "'Jost', 'Century Gothic', sans-serif", fontWeight: 900, fontSize: 20 }}>Points & preferences</h2>
+              <h2 style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 900, fontSize: 20 }}>Points & preferences</h2>
               <button onClick={() => setPrefsOpen(false)} style={{ color: T.inkSoft }}><X size={18} /></button>
             </div>
 
@@ -1219,7 +1219,7 @@ export default function App() {
                   onClick={runDiag}
                   disabled={!liveMode() || diag?.running}
                   className="py-1.5 px-3 rounded-lg text-xs font-bold text-white disabled:opacity-40"
-                  style={{ background: T.ink }}
+                  style={{ background: T.deep }}
                 >
                   {diag?.running ? "Checking…" : "Run check"}
                 </button>

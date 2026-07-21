@@ -20,11 +20,11 @@ class Boundary extends React.Component {
     return (
       <div style={{
         minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-        background: "#FDFBF5", color: "#1E2B33", fontFamily: "'Inter', system-ui, sans-serif", padding: 24,
+        background: "#04060B", color: "#EDF1F8", fontFamily: "'Inter', system-ui, sans-serif", padding: 24,
       }}>
         <div style={{
-          maxWidth: 460, background: "#fff", border: "1px solid rgba(30,43,51,.18)",
-          borderRadius: 12, padding: 28, boxShadow: "0 10px 30px rgba(30,43,51,.14)",
+          maxWidth: 460, background: "#0A0F1A", border: "1px solid rgba(140,165,210,.18)",
+          borderRadius: 4, padding: 28, boxShadow: "0 18px 50px rgba(0,0,0,.6)",
         }}>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "#CE3D2A", marginBottom: 8 }}>
             Unscheduled turbulence
@@ -37,13 +37,13 @@ class Boundary extends React.Component {
           </p>
           <pre style={{
             fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5D6B73",
-            background: "#FDFBF5", border: "1px solid rgba(30,43,51,.12)", borderRadius: 8,
+            background: "#04060B", border: "1px solid rgba(140,165,210,.14)", borderRadius: 3,
             padding: 10, whiteSpace: "pre-wrap", wordBreak: "break-word", marginBottom: 16, maxHeight: 120, overflow: "auto",
           }}>{String(this.state.error?.message ?? this.state.error)}</pre>
           <button
             onClick={() => location.reload()}
             style={{
-              background: "#CE3D2A", color: "#fff", border: "none", borderRadius: 8,
+              background: "#7FB0FF", color: "#04060B", border: "none", borderRadius: 3,
               padding: "12px 22px", fontFamily: "'Jost', sans-serif", fontWeight: 600,
               fontSize: 14, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer",
             }}

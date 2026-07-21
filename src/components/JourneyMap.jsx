@@ -26,12 +26,12 @@ export function JourneyMap({ route, originId }) {
   const origin = cityById[originId];
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded-xl" style={{ background: "#F2F3EE", border: `1px solid ${T.mist}` }}>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded-xl" style={{ background: "#070C16", border: `1px solid ${T.mist}` }}>
       {[...Array(9)].map((_, i) => (
-        <line key={"v" + i} x1={40 + (i * (W - 90)) / 8} y1={20} x2={40 + (i * (W - 90)) / 8} y2={H - 30} stroke="#E0E1DA" strokeWidth="1" />
+        <line key={"v" + i} x1={40 + (i * (W - 90)) / 8} y1={20} x2={40 + (i * (W - 90)) / 8} y2={H - 30} stroke="#15233C" strokeWidth="1" />
       ))}
       {[...Array(6)].map((_, i) => (
-        <line key={"h" + i} x1={30} y1={30 + (i * (H - 76)) / 5} x2={W - 40} y2={30 + (i * (H - 76)) / 5} stroke="#E0E1DA" strokeWidth="1" />
+        <line key={"h" + i} x1={30} y1={30 + (i * (H - 76)) / 5} x2={W - 40} y2={30 + (i * (H - 76)) / 5} stroke="#15233C" strokeWidth="1" />
       ))}
       <text x={W - 44} y={H - 12} textAnchor="end" fontSize="10" fill={T.inkSoft} fontFamily="'IBM Plex Mono', monospace">
         ROUTE DIAGRAM · {route.inGw.gw} IN / {route.outGw.gw} OUT
@@ -61,17 +61,17 @@ export function JourneyMap({ route, originId }) {
       {/* gateway badges */}
       {[["in", inP, route.inGw.gw], ["out", outP, route.outGw.gw]].map(([k, p, gw]) => (
         <g key={k}>
-          <rect x={p.x - 17} y={p.y - 9} width="34" height="18" rx="4" fill="#fff" stroke={T.flight} strokeWidth="1.5" />
+          <rect x={p.x - 17} y={p.y - 9} width="34" height="18" rx="4" fill="#0A0F1A" stroke={T.flight} strokeWidth="1.5" />
           <text x={p.x} y={p.y + 4} textAnchor="middle" fontSize="10" fontWeight="700" fill={T.flight} fontFamily="'IBM Plex Mono', monospace">{gw}</text>
         </g>
       ))}
 
-      {/* stops */}
+      {/* stops — silver night badges */}
       {pts.map((p, i) => (
         <g key={p.cid}>
-          <circle cx={p.x} cy={p.y} r="11" fill={T.ink} />
-          <circle cx={p.x} cy={p.y} r="11" fill="none" stroke="#fff" strokeWidth="2.5" />
-          <text x={p.x} y={p.y + 3.5} textAnchor="middle" fontSize="9" fontWeight="800" fill="#fff">{i + 1}</text>
+          <circle cx={p.x} cy={p.y} r="11" fill={T.gold} />
+          <circle cx={p.x} cy={p.y} r="11" fill="none" stroke="#04060B" strokeWidth="1.5" />
+          <text x={p.x} y={p.y + 3.5} textAnchor="middle" fontSize="9" fontWeight="800" fill="#0A0F1A">{i + 1}</text>
           <text x={p.x} y={p.y - 17} textAnchor="middle" fontSize="12" fontWeight="700" fill={T.ink}>{cityById[p.cid].name}</text>
         </g>
       ))}
