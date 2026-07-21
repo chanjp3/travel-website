@@ -31,7 +31,10 @@ async function pricePair(dep, arr, date, cabin) {
   ]);
   const out = {
     cash: bestCashOf(offers),
-    miles: bestMilesOf(awards, cabin === "Business" ? "business" : "economy"),
+    miles: bestMilesOf(
+      awards,
+      cabin === "Business" ? "business" : cabin === "First" ? "first" : cabin === "Premium Economy" ? "premium" : "economy"
+    ),
   };
   cache.set(key, out);
   return out;

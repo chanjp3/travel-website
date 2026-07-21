@@ -126,7 +126,10 @@ async function duffelFlights(env, q) {
     body: JSON.stringify({ data: {
       slices: [{ origin: q.from, destination: q.to, departure_date: q.date }],
       passengers: [{ type: "adult" }],
-      cabin_class: q.cabin === "BUSINESS" ? "business" : "economy",
+      cabin_class: q.cabin === "BUSINESS" ? "business"
+        : q.cabin === "FIRST" ? "first"
+        : q.cabin === "PREMIUM_ECONOMY" ? "premium_economy"
+        : "economy",
     } }),
   });
   if (!res.ok) throw new Error(`Duffel failed: ${res.status}`);
@@ -146,7 +149,7 @@ async function duffelFlights(env, q) {
         price: +o.total_amount,
         currency: o.total_currency,
         carrier: o.owner?.iata_code ?? segs[0].marketing_carrier?.iata_code,
-        cabin: q.cabin === "BUSINESS" ? "BUSINESS" : "ECONOMY",
+        cabin: ["BUSINESS", "FIRST", "PREMIUM_ECONOMY"].includes(q.cabin) ? q.cabin : "ECONOMY",
         transfers: segs.length - 1,
         durMin,
         bookable: true,
@@ -289,21 +292,24 @@ async function seatsSearch(env, from, to, date, flexDays = 0) {
   } : null);
   return (j.data ?? []).map((a) => ({
     id: a.ID, source: a.Source, date: a.Date,
-    economy: cabin(a, "Y"), business: cabin(a, "J"),
+    economy: cabin(a, "Y"), premium: cabin(a, "W"),
+    business: cabin(a, "J"), first: cabin(a, "F"),
   }));
 }
+
+const AWARD_CABINS = ["economy", "premium", "business", "first"];
 
 /** Enrich the cheapest availability rows with flight-level detail (real
  *  departure/arrival times, flight numbers, duration) from the trips
  *  endpoint. Detail is a bonus — any failure leaves the row date-level. */
 async function attachTripDetail(env, rows, max = 4) {
-  const score = (r) => Math.min(r.economy?.miles ?? 9e9, r.business?.miles ?? 9e9);
-  const cands = rows.filter((r) => (r.economy || r.business) && r.id)
+  const score = (r) => Math.min(...AWARD_CABINS.map((c) => r[c]?.miles ?? 9e9));
+  const cands = rows.filter((r) => AWARD_CABINS.some((c) => r[c]) && r.id)
     .sort((a, b) => score(a) - score(b)).slice(0, max);
   await Promise.all(cands.map(async (r) => {
     try {
       const j = await seatsGet(env, `https://seats.aero/partnerapi/trips/${r.id}`);
-      for (const ck of ["economy", "business"]) {
+      for (const ck of AWARD_CABINS) {
         const block = r[ck];
         if (!block) continue;
         const t = (j.data ?? [])
@@ -345,13 +351,13 @@ async function awardConnections(env, q) {
         }
         return m;
       };
-      for (const ck of ["economy", "business"]) {
+      for (const ck of AWARD_CABINS) {
         const a = bestBy(l1, ck), b = bestBy(l2, ck);
         for (const source of Object.keys(a)) {
           if (!b[source]) continue;
           out.push({
             source, date: q.date, via: hub,
-            economy: null, business: null,
+            economy: null, premium: null, business: null, first: null,
             [ck]: {
               miles: a[source].miles + b[source].miles,
               taxes: Math.round(((a[source].taxes ?? 0) + (b[source].taxes ?? 0)) * 100) / 100,
@@ -541,7 +547,7 @@ export default {
         // Only the exact requested date counts as "the answer" — nearby-date
         // rows ride along so the app can offer a date shift.
         const exact = rows.filter((r) => r.date === q.date);
-        const hasSpace = exact.some((r) => r.economy || r.business);
+        const hasSpace = exact.some((r) => AWARD_CABINS.some((c) => r[c]));
         if (hasSpace) {
           // Real times & flight numbers for the rows the app will show.
           if (q.detail) await attachTripDetail(env, exact);
