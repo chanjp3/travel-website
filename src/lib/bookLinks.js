@@ -23,6 +23,15 @@ const PROGRAM_HOME = {
   ana: "https://www.ana.co.jp/en/us/amc/",
 };
 
+/** Live cash comparison without any API relationship: a Google Flights
+ *  search pre-filled with the exact route, date, and cabin. Real routes,
+ *  real prices, one click — the planning answer that needs no key. */
+export function cashSearchLink(from, to, date, cabin) {
+  if (!from || !to || !date) return null;
+  const q = `Flights from ${from} to ${to} on ${date} one way${cabin === "Business" ? " business class" : ""}`;
+  return `https://www.google.com/travel/flights?q=${encodeURIComponent(q)}`;
+}
+
 export function bookLink(programId, from, to, date, cabin) {
   if (!programId || !from || !to || !date) return null;
   const biz = cabin === "Business";

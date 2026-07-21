@@ -445,9 +445,11 @@ export default {
         })) ?? []);
       }
       if (url.pathname === "/api/flights") {
-        // Real bookable offers first, when Duffel is configured.
+        // Real bookable offers first, when Duffel is configured with a LIVE
+        // token. Sandbox tokens are ignored — simulated flights must never
+        // shadow the real cached market fares below.
         let real = [];
-        if (env.DUFFEL_KEY) {
+        if (env.DUFFEL_KEY && !env.DUFFEL_KEY.startsWith("duffel_test")) {
           try { real = await duffelFlights(env, q); } catch { /* cached-fare path below */ }
         }
         if (real.length) {
