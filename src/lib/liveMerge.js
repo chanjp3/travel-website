@@ -39,6 +39,7 @@ export function mergeLiveLeg(leg, offers, cabin) {
       // Round-trip fallback fares carry the full both-ways price — show
       // the per-direction half so every leg row stays comparable.
       cash: Math.round(o.price / (o.roundTrip ? 2 : 1)),
+      bookable: !!o.bookable,
       roundTrip: !!o.roundTrip,
       rtTotal: o.roundTrip ? Math.round(o.price) : null,
       selfTransfer: !!o.selfTransfer,
