@@ -149,11 +149,34 @@ function FlightPicker({ from, to, date, cabin, balances, onPick, onSkip, onBack,
 }
 
 /* ── the wizard ── */
+const CABINS = ["Economy", "Premium Economy", "Business", "First"];
+
+function CabinPicker({ value, onChange }) {
+  return (
+    <div>
+      <label className="text-xs font-bold block mb-1" style={{ color: T.inkSoft }}>Cabin</label>
+      <div className="flex gap-1.5 flex-wrap">
+        {CABINS.map((c) => (
+          <button
+            key={c} onClick={() => onChange(c)}
+            className="py-2 px-3 rounded-lg text-xs font-semibold"
+            style={{
+              background: value === c ? T.railTint : T.paper,
+              border: `1.5px solid ${value === c ? T.rail : T.mist}`,
+              color: value === c ? T.rail : T.inkSoft,
+            }}
+          >{c}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function LegBuilder({ cabinPref, balances, onExit }) {
-  const [legs, setLegs] = useState([]);       // {kind:'air'|'rail', from, to, date, pick|est}
+  const [legs, setLegs] = useState([]);       // {kind:'air'|'rail', from, to, date, cabin, pick|est}
   const [staysByLeg, setStaysByLeg] = useState({}); // legIndex → [{name, nights}]
   const [phase, setPhase] = useState("route");
-  const [draft, setDraft] = useState({ from: "TPA", to: null, date: defaultDepart(), isReturn: false, mode: "air" });
+  const [draft, setDraft] = useState({ from: "TPA", to: null, date: defaultDepart(), cabin: cabinPref ?? "Business", isReturn: false, mode: "air" });
   const [resume, setResume] = useState(null);
 
   useEffect(() => {
@@ -170,7 +193,7 @@ export function LegBuilder({ cabinPref, balances, onExit }) {
   const nextDate = lastLeg ? addDays(lastLeg.date, Math.max(staySum(staysByLeg[legs.length - 1] ?? []), 1)) : draft.date;
 
   const finishFlight = (pick) => {
-    const leg = { kind: "air", from: draft.from, to: draft.to, date: draft.date, pick };
+    const leg = { kind: "air", from: draft.from, to: draft.to, date: draft.date, cabin: draft.cabin, pick };
     const next = [...legs, leg];
     setLegs(next);
     if (draft.isReturn) { setPhase("summary"); return; }
@@ -263,6 +286,7 @@ export function LegBuilder({ cabinPref, balances, onExit }) {
               />
             </div>
           </div>
+          <CabinPicker value={draft.cabin} onChange={(c) => setDraft({ ...draft, cabin: c })} />
           <button
             disabled={!draft.from || !draft.to || !draft.date}
             onClick={() => setPhase("flights")}
@@ -273,7 +297,7 @@ export function LegBuilder({ cabinPref, balances, onExit }) {
 
       {phase === "flights" && (
         <FlightPicker
-          from={draft.from} to={draft.to} date={draft.date} cabin={cabinPref} balances={balances}
+          from={draft.from} to={draft.to} date={draft.date} cabin={draft.cabin} balances={balances}
           title={draft.isReturn ? "Return flight" : `Flight ${legs.length + 1}`}
           onPick={finishFlight}
           onSkip={() => finishFlight(null)}
@@ -302,7 +326,7 @@ export function LegBuilder({ cabinPref, balances, onExit }) {
           </button>
           <div>
             <button
-              onClick={() => { setDraft({ from: currentAir, to: null, date: nextDate, isReturn: false, mode: "air" }); setPhase("decide"); }}
+              onClick={() => { setDraft({ from: currentAir, to: null, date: nextDate, cabin: draft.cabin, isReturn: false, mode: "air" }); setPhase("decide"); }}
               className="py-3 px-5 rounded-xl font-bold text-sm text-white" style={{ background: T.ink }}
             >Continue →</button>
           </div>
@@ -323,6 +347,7 @@ export function LegBuilder({ cabinPref, balances, onExit }) {
               />
             </div>
           </div>
+          <CabinPicker value={draft.cabin} onChange={(c) => setDraft({ ...draft, cabin: c })} />
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => { setDraft({ ...draft, to: homeAir, isReturn: true }); setPhase("flights"); }}
@@ -381,7 +406,7 @@ export function LegBuilder({ cabinPref, balances, onExit }) {
           </div>
           <div className="flex gap-2 flex-wrap">
             <button
-              onClick={() => { setLegs([]); setStaysByLeg({}); setDraft({ from: homeAir, to: null, date: defaultDepart(), isReturn: false, mode: "air" }); setPhase("route"); try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ } }}
+              onClick={() => { setLegs([]); setStaysByLeg({}); setDraft({ from: homeAir, to: null, date: defaultDepart(), cabin: draft.cabin, isReturn: false, mode: "air" }); setPhase("route"); try { localStorage.removeItem(LS_KEY); } catch { /* ignore */ } }}
               className="py-2.5 px-4 rounded-xl font-bold text-xs" style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}
             >Start over</button>
             <button onClick={onExit} className="py-2.5 px-4 rounded-xl font-bold text-xs text-white" style={{ background: T.ink }}>

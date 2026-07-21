@@ -27,7 +27,12 @@ export function mergeLiveLeg(leg, offers, cabin) {
     .sort((a, b) => a.price - b.price);
   if (!usable.length) return { ...leg, live: false };
 
-  const offerCabin = (o) => (o.cabin === "ECONOMY" ? "Economy" : o.cabin === "BUSINESS" ? "Business" : cabin);
+  const offerCabin = (o) =>
+    o.cabin === "ECONOMY" ? "Economy"
+    : o.cabin === "BUSINESS" ? "Business"
+    : o.cabin === "FIRST" ? "First"
+    : o.cabin === "PREMIUM_ECONOMY" ? "Premium Economy"
+    : cabin;
   const liveRows = usable.slice(0, 8).map((o, i) => {
     const it = o.itineraries[0];
     const segs = it.segments;
@@ -67,9 +72,7 @@ export function mergeLiveLeg(leg, offers, cabin) {
     .filter((f) => !(f.cashOnly && bestByCabin[f.cabin] != null))
     .map((f) => (f.points && bestByCabin[f.cabin] != null ? { ...f, cash: bestByCabin[f.cabin], liveCash: true } : f));
   options.push(...liveRows);
-  options.sort((a, b) =>
-    a.cabin === b.cabin ? (a.points ?? 9e9) - (b.points ?? 9e9) : a.cabin === "Economy" ? -1 : 1
-  );
+  options.sort(cabinSort);
   return { ...leg, options, live: true, bestCash };
 }
 
@@ -95,7 +98,12 @@ const SEATSAERO_SOURCES = {
   azul: "azul",
   smiles: "smiles",
 };
-const CABIN_KEY = { Economy: "economy", Business: "business" };
+const CABIN_KEY = { Economy: "economy", "Premium Economy": "premium", Business: "business", First: "first" };
+const CABIN_LABEL = { economy: "Economy", premium: "Premium Economy", business: "Business", first: "First" };
+const AWARD_CABINS = Object.keys(CABIN_LABEL);
+const CABIN_RANK = { Economy: 0, "Premium Economy": 1, Business: 2, First: 3 };
+const cabinSort = (a, b) =>
+  (CABIN_RANK[a.cabin] ?? 9) - (CABIN_RANK[b.cabin] ?? 9) || (a.points ?? 9e9) - (b.points ?? 9e9);
 
 /** Apply a live availability block to an option row: real miles/taxes, and —
  *  when the worker fetched flight-level detail — real times, flight numbers,
@@ -138,7 +146,7 @@ export function mergeLiveAwards(leg, rows, exactDate = null) {
   for (const r of exact) {
     const pid = SEATSAERO_SOURCES[r.source];
     if (!pid) continue;
-    for (const ck of ["economy", "business"]) {
+    for (const ck of AWARD_CABINS) {
       const block = r[ck];
       if (!block?.miles) continue;
       const cur = (best[pid] ??= {})[ck];
@@ -149,12 +157,12 @@ export function mergeLiveAwards(leg, rows, exactDate = null) {
   for (const r of nearbyRaw) {
     const pid = SEATSAERO_SOURCES[r.source];
     if (!pid) continue;
-    for (const ck of ["economy", "business"]) {
+    for (const ck of AWARD_CABINS) {
       const block = r[ck];
       if (!block?.miles) continue;
       const k = `${r.date}|${ck}`;
       if (!nearBest[k] || block.miles < nearBest[k].miles) {
-        nearBest[k] = { date: r.date, cabin: ck === "economy" ? "Economy" : "Business", miles: block.miles, programId: pid };
+        nearBest[k] = { date: r.date, cabin: CABIN_LABEL[ck], miles: block.miles, programId: pid };
       }
     }
   }
@@ -176,15 +184,13 @@ export function mergeLiveAwards(leg, rows, exactDate = null) {
       options.push(applyAwardHit({
         id: `livea-${pid}-${ck}`,
         airline: hit.airlines || SOURCES[pid]?.short || pid,
-        cabin: ck === "economy" ? "Economy" : "Business",
+        cabin: CABIN_LABEL[ck],
         programId: pid, points: hit.miles, fees: hit.taxes ?? 0,
         cash: null, via: hit.direct ? "nonstop" : "1+ stops", dur: "", est: false,
       }, hit));
     }
   }
-  options.sort((a, b) =>
-    a.cabin === b.cabin ? (a.points ?? 9e9) - (b.points ?? 9e9) : a.cabin === "Economy" ? -1 : 1
-  );
+  options.sort(cabinSort);
   return { ...leg, options, awardsLive: true, nearbyAwards };
 }
 const invert = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [v, k]));

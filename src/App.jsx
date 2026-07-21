@@ -1168,8 +1168,8 @@ export default function App() {
 
             <div className="rounded-xl p-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
               <span className="text-sm font-bold">Cabin preference · long-haul</span>
-              <div className="flex gap-2 mt-2">
-                {["Economy", "Business"].map((c) => (
+              <div className="flex gap-2 mt-2 flex-wrap">
+                {["Economy", "Premium Economy", "Business", "First"].map((c) => (
                   <button
                     key={c} onClick={() => { setCabinPref(c); setFlightSel({}); }}
                     className="flex-1 py-2 rounded-lg text-sm font-semibold"
