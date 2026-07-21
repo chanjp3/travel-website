@@ -87,7 +87,7 @@ export const liveFlightsProbe = (from, to, date, cabin) =>
  *  `via` lets the worker build two-booking plans through hubs when the
  *  direct pair has no space; `detail` fetches real times & flight numbers. */
 export const liveAwards = (from, to, date) =>
-  get("/api/awards", { from, to, date, detail: 1, via: connectionHubs(from, to).join(",") || null });
+  get("/api/awards", { from, to, date, detail: 1, flex: 2, via: connectionHubs(from, to).join(",") || null });
 
 /** Cheap single-call probe — no hub fan-out, no detail. For the advisor. */
 export const liveAwardsProbe = (from, to, date) => get("/api/awards", { from, to, date });
