@@ -47,12 +47,43 @@ async function getDetailed(path, params, timeoutMs = 12000) {
 export const liveHotelsDetailed = (city, checkIn, checkOut, radius) =>
   getDetailed("/api/hotels", { lat: city.lat, lon: city.lon, name: city.name, cityCode: city.custom ? null : city.cc ?? city.air, checkIn, checkOut, radius }, 20000);
 
-/** Cloud trip sync: save returns a short code, load fetches by code. */
+/* ── Account sign-in (Google via the worker) ─────────────────────────── */
+export const authToken = () => { try { return localStorage.getItem("meridian.auth"); } catch { return null; } };
+export const authLogout = () => { try { localStorage.removeItem("meridian.auth"); } catch { /* ignore */ } };
+export const authLoginUrl = () =>
+  BASE ? `${BASE}/api/auth/login?to=${encodeURIComponent(location.origin + location.pathname)}` : null;
+/** Pull a fresh session token out of the OAuth return fragment. */
+export function captureAuthFromHash() {
+  if (!location.hash.startsWith("#token=")) return false;
+  try { localStorage.setItem("meridian.auth", location.hash.slice(7)); } catch { /* ignore */ }
+  history.replaceState(null, "", location.pathname + location.search);
+  return true;
+}
+const authHeaders = () => (authToken() ? { Authorization: `Bearer ${authToken()}` } : {});
+/** {status: 200, user} | {status: 401 signed out} | {status: 501 not set up} */
+export async function authMe() {
+  if (!BASE) return { status: 501 };
+  try {
+    const res = await fetch(new URL("/api/auth/me", BASE), { headers: authHeaders(), signal: AbortSignal.timeout(8000) });
+    if (res.ok) return { status: 200, user: await res.json() };
+    return { status: res.status };
+  } catch { return { status: 0 }; }
+}
+export async function myTrips() {
+  if (!BASE || !authToken()) return [];
+  try {
+    const res = await fetch(new URL("/api/trips/mine", BASE), { headers: authHeaders(), signal: AbortSignal.timeout(8000) });
+    return res.ok ? await res.json() : [];
+  } catch { return []; }
+}
+
+/** Cloud trip sync: save returns a short code, load fetches by code.
+ *  Signed in, the save is also filed under your account. */
 export async function saveTripCloud(data) {
   if (!BASE) return { code: null, error: "not-configured" };
   try {
     const res = await fetch(new URL("/api/trips", BASE), {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(data), signal: AbortSignal.timeout(12000),
     });
     const j = await res.json().catch(() => ({}));

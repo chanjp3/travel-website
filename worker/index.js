@@ -16,6 +16,48 @@
  *     (self-service portal decommissioned); branch kept for those keys.
  *   SEATSAERO_KEY — Seats.aero Partner API for live award space.
  */
+/* ── Account sign-in (Google OAuth, confidential flow) ─────────────────
+ * Dormant until GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + AUTH_SECRET
+ * exist as worker secrets. The site and worker live on different domains,
+ * so sessions are bearer JWTs handed to the page via URL fragment and
+ * kept in localStorage — no third-party cookies. Trips saved while
+ * signed in are indexed per Google account in KV.
+ */
+const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const b64uJSON = (o) => b64u(new TextEncoder().encode(JSON.stringify(o)));
+const fromB64u = (s) => JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0))));
+
+async function hmacKey(secret) {
+  return crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+}
+async function signToken(env, payload) {
+  const body = `${b64uJSON({ alg: "HS256", typ: "JWT" })}.${b64uJSON(payload)}`;
+  const sig = await crypto.subtle.sign("HMAC", await hmacKey(env.AUTH_SECRET), new TextEncoder().encode(body));
+  return `${body}.${b64u(sig)}`;
+}
+async function verifyToken(env, token) {
+  try {
+    const [h, p, s] = String(token ?? "").split(".");
+    if (!h || !p || !s) return null;
+    const ok = await crypto.subtle.verify(
+      "HMAC", await hmacKey(env.AUTH_SECRET),
+      Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)),
+      new TextEncoder().encode(`${h}.${p}`)
+    );
+    if (!ok) return null;
+    const payload = fromB64u(p);
+    if (payload.exp && payload.exp < Date.now() / 1000) return null;
+    return payload;
+  } catch { return null; }
+}
+const authConfigured = (env) => !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && env.AUTH_SECRET);
+async function userFrom(req, env) {
+  if (!authConfigured(env)) return null;
+  const m = /^Bearer\s+(.+)$/.exec(req.headers.get("Authorization") ?? "");
+  const u = m ? await verifyToken(env, m[1]) : null;
+  return u?.sub ? u : null; // sessions carry sub; a state token here is no session
+}
+
 let tokenCache = { token: null, exp: 0 };
 
 async function amadeusToken(env) {
@@ -43,7 +85,7 @@ async function amadeus(env, path, params) {
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Content-Type": "application/json",
 };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: CORS });
@@ -555,6 +597,64 @@ export default {
           lat: h.hotel?.latitude, lon: h.hotel?.longitude,
         })) ?? []);
       }
+      if (url.pathname === "/api/auth/login") {
+        if (!authConfigured(env)) return json({ error: "sign-in not configured — set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, AUTH_SECRET" }, 501);
+        const to = /^https:\/\//.test(q.to ?? "") ? q.to : "";
+        const state = await signToken(env, { to, exp: Math.floor(Date.now() / 1000) + 600 });
+        const g = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+        g.searchParams.set("client_id", env.GOOGLE_CLIENT_ID);
+        g.searchParams.set("redirect_uri", `${url.origin}/api/auth/callback`);
+        g.searchParams.set("response_type", "code");
+        g.searchParams.set("scope", "openid email profile");
+        g.searchParams.set("state", state);
+        g.searchParams.set("prompt", "select_account");
+        return Response.redirect(g.toString(), 302);
+      }
+      if (url.pathname === "/api/auth/callback") {
+        if (!authConfigured(env)) return json({ error: "sign-in not configured" }, 501);
+        // state is our own signed token — a tampered redirect target dies here
+        const st = await verifyToken(env, q.state);
+        if (!st) return json({ error: "sign-in state invalid or expired — try again" }, 400);
+        const res = await fetch("https://oauth2.googleapis.com/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            code: q.code ?? "", client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+            redirect_uri: `${url.origin}/api/auth/callback`, grant_type: "authorization_code",
+          }).toString(),
+        });
+        if (!res.ok) return json({ error: "google sign-in failed" }, 502);
+        const t = await res.json();
+        // id_token arrives from Google over the TLS token exchange —
+        // decoding without a JWKS round-trip is the standard
+        // confidential-client shortcut
+        let idp = null;
+        try { idp = fromB64u((t.id_token ?? "").split(".")[1] ?? ""); } catch { /* fall through */ }
+        if (!idp?.sub) return json({ error: "google sign-in failed" }, 502);
+        const token = await signToken(env, {
+          sub: idp.sub, email: idp.email ?? null, name: idp.name ?? null,
+          exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30,
+        });
+        return Response.redirect(`${st.to || url.origin}#token=${token}`, 302);
+      }
+      if (url.pathname === "/api/auth/me") {
+        if (!authConfigured(env)) return json({ error: "sign-in not configured" }, 501);
+        const u = await userFrom(req, env);
+        return u ? json({ email: u.email, name: u.name }) : json({ error: "signed out" }, 401);
+      }
+      if (url.pathname === "/api/trips/mine") {
+        if (!env.MERIDIAN_TRIPS) return json({ error: "trip storage not configured" }, 501);
+        if (!authConfigured(env)) return json({ error: "sign-in not configured" }, 501);
+        const u = await userFrom(req, env);
+        if (!u) return json({ error: "signed out" }, 401);
+        const l = await env.MERIDIAN_TRIPS.list({ prefix: `user:${u.sub}:`, limit: 60 });
+        const out = [];
+        for (const k of l.keys.slice(-20)) {
+          const v = await env.MERIDIAN_TRIPS.get(k.name);
+          if (v) { try { out.push(JSON.parse(v)); } catch { /* skip corrupt */ } }
+        }
+        return json(out.reverse());
+      }
       if (url.pathname === "/api/trips") {
         if (!env.MERIDIAN_TRIPS) {
           return json({ error: "trip storage not configured — create a KV namespace and bind it as MERIDIAN_TRIPS" }, 501);
@@ -571,6 +671,14 @@ export default {
             if (!(await env.MERIDIAN_TRIPS.get(code))) break;
           }
           await env.MERIDIAN_TRIPS.put(code, body, { expirationTtl: 60 * 60 * 24 * 90 });
+          const u = await userFrom(req, env);
+          if (u) {
+            let label = "Trip";
+            try { label = JSON.parse(body)?.label ?? label; } catch { /* keep default */ }
+            await env.MERIDIAN_TRIPS.put(`user:${u.sub}:${Date.now()}`,
+              JSON.stringify({ code, label, savedAt: new Date().toISOString() }),
+              { expirationTtl: 60 * 60 * 24 * 90 });
+          }
           return json({ code });
         }
         const saved = await env.MERIDIAN_TRIPS.get((q.code ?? "").toUpperCase().trim());
