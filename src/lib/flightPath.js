@@ -25,6 +25,20 @@ const absMin = (a, b) => {
   return Number.isFinite(d) && d > 0 && d < 48 * 3600000 ? Math.round(d / 60000) : null;
 };
 
+/** Route chain without times — for date-level award plans (two bookings
+ *  via a hub) where the airports are known but the clock isn't. */
+export function chainPathHTML(codes, note) {
+  if (!codes || codes.length < 2 || codes.some((c) => !c)) return null;
+  const parts = [`<div class="fp-end"><div class="fp-code fp-code-lg">${esc(codes[0])}</div></div>`];
+  for (let i = 1; i < codes.length; i++) {
+    parts.push(`<div class="fp-seg" style="flex-grow:1"><div class="fp-line"><span class="fp-plane">✈</span></div></div>`);
+    parts.push(i < codes.length - 1
+      ? `<div class="fp-stop"><div class="fp-dot"></div><div class="fp-code">${esc(codes[i])}</div>${note ? `<div class="fp-lay">${esc(note)}</div>` : ""}</div>`
+      : `<div class="fp-end"><div class="fp-code fp-code-lg">${esc(codes[i])}</div></div>`);
+  }
+  return `<div class="fp">${parts.join("")}</div>`;
+}
+
 export function flightPathHTML(f) {
   const segs = f?.segs;
   if (!segs?.length || !segs[0].dep) return null;

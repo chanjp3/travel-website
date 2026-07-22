@@ -106,6 +106,24 @@
 .btn.sm{padding:8px 14px;font-size:9.5px}
 .btn.cab{flex:none;padding:7px 10px;font-size:8.5px;letter-spacing:.2em}
 .btn.cab-sel{border-color:var(--route);color:var(--ink);background:rgba(127,176,255,.12);box-shadow:var(--glow)}
+
+/* ---------- flight cards (in-flow flight step) ---------- */
+.fcard{display:block;width:100%;text-align:left;padding:13px 14px;margin-bottom:9px;
+  background:rgba(255,255,255,.02);border:1px solid var(--hair);border-radius:2px;cursor:pointer;
+  transition:border-color .25s,background .25s,transform .25s,box-shadow .25s}
+.fcard:hover{border-color:var(--route);background:rgba(127,176,255,.06);transform:translateX(-3px);box-shadow:var(--glow)}
+.f-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.f-route{font-family:var(--serif);font-style:italic;font-size:15.5px;letter-spacing:.02em;
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.f-price{font-family:var(--mono);font-size:13.5px;font-weight:700;color:var(--ink);white-space:nowrap}
+.f-price em{font-style:normal;font-weight:400;font-size:8.5px;color:var(--route);letter-spacing:.14em;text-transform:uppercase;margin-left:3px}
+.f-tags{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:7px}
+.f-tag{font-size:7.5px;font-family:var(--mono);letter-spacing:.18em;border:1px solid var(--gold-deep);
+  color:var(--gold);border-radius:1px;padding:2px 6px;text-transform:uppercase}
+.f-cab{font-size:7.5px;font-family:var(--mono);letter-spacing:.18em;color:var(--ink-soft);text-transform:uppercase;margin-left:auto}
+.f-meta{font-family:var(--mono);font-size:9.5px;color:var(--ink-soft);letter-spacing:.06em;margin-top:7px}
+.f-fund{font-size:10.5px;color:var(--ink-soft);margin-top:7px;line-height:1.5;font-weight:300}
+.fcard .fp{margin-top:9px;padding:10px 10px 8px;background:rgba(4,6,11,.5)}
 .row{display:flex;gap:8px;align-items:center}
 .backlink{font-family:var(--mono);font-size:9.5px;letter-spacing:.24em;color:var(--ink-soft);background:none;border:none;
   cursor:pointer;padding:6px 0;margin-top:6px;text-transform:uppercase;transition:color .25s}

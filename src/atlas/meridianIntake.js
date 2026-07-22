@@ -13,7 +13,7 @@ import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
 import { geoSearch, liveHotelsDetailed, liveMode, searchPOI, liveFlights, liveAwards } from "../api/client.js";
 import { mergeLiveLeg, mergeLiveAwards } from "../lib/liveMerge.js";
-import { flightPathHTML } from "../lib/flightPath.js";
+import { flightPathHTML, chainPathHTML } from "../lib/flightPath.js";
 import { bestPath, describePath } from "../lib/funding.js";
 import { SOURCES, DEFAULT_BALANCES } from "../data/transferPartners.js";
 import { showDetailMap, hideDetailMap, destroyDetailMap } from "./detailMap.js";
@@ -537,17 +537,33 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
     $('#flSkip').onclick=()=>onPick(null);
     if(onBack){ const bk=$('#flBk'); if(bk) bk.onclick=onBack; }
   };
+  const escH=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const rowHTML=(f,i)=>{
-    const price=f.points?`${(f.points/1000).toFixed(0)}K`:`$${Math.round(f.cash).toLocaleString()}`;
-    const sub=[f.dep?`${f.dep}${f.arr?'–'+f.arr:''}`:null,f.via,f.dur,f.flightNos].filter(Boolean).join(' · ');
-    const tag=f.awardLive?`LIVE AWARD${f.seats>0?` · ${f.seats} seat${f.seats!==1?'s':''}`:''}`
-      :f.testData?'TEST DATA':f.live?(f.bookable?'BOOKABLE':'LIVE'):'';
-    const fund=f.points?`<div class="sub">${describePath(bestPath(f.programId,f.points,getBal()),f.programId)} + $${Math.round(f.fees??0)} taxes</div>`:'';
-    const segsHtml=flightPathHTML(f)??'';
-    return `<div class="opt" data-i="${i}">
-      <span class="iata">${price}</span>
-      <span class="nm">${f.airline} · ${f.cabin}${tag?` <span class="sub" style="color:var(--ok);display:inline">${tag}</span>`:''}
-        <div class="sub">${sub}</div>${segsHtml}${fund}</span></div>`;
+    const price=f.points
+      ?`${(f.points/1000).toFixed(0)}K <em>${escH(SOURCES[f.programId]?.short??'')}</em>`
+      :`$${Math.round(f.cash).toLocaleString()}`;
+    const tags=[
+      f.awardLive?'LIVE AWARD':null,
+      f.awardLive&&f.seats>0?`${f.seats} seat${f.seats!==1?'s':''}`:null,
+      f.twoBookings?'2 bookings':null,
+      f.selfTransfer?'self-transfer':null,
+      f.testData?'test data':null,
+      (!f.points&&!f.testData&&f.live)?(f.bookable?'bookable':'live'):null,
+      f.roundTrip?'½ round-trip':null,
+    ].filter(Boolean).map(t=>`<span class="f-tag">${escH(t)}</span>`).join('');
+    // routing graphic: real segments when we have them, the airport chain
+    // for date-level two-booking plans
+    const path=flightPathHTML(f)
+      ??(f.twoBookings&&f.viaHub?chainPathHTML([from.iata,f.viaHub,to.iata],'2 bookings'):null)
+      ??'';
+    const meta=[f.dep?`${f.dep}${f.arr?'–'+f.arr:''}`:null,(!path&&f.via)?f.via:null,f.dur,(!path&&f.flightNos)?f.flightNos:null]
+      .filter(Boolean).join(' · ');
+    const fund=f.points?`<div class="f-fund">${describePath(bestPath(f.programId,f.points,getBal()),f.programId)} · +$${Math.round(f.fees??0)} taxes</div>`:'';
+    return `<div class="fcard" data-i="${i}">
+      <div class="f-top"><span class="f-route">${escH(f.airline)}</span><span class="f-price">${price}</span></div>
+      ${tags?`<div class="f-tags">${tags}<span class="f-cab">${escH(f.cabin)}</span></div>`:`<div class="f-tags"><span class="f-cab">${escH(f.cabin)}</span></div>`}
+      ${meta?`<div class="f-meta">${escH(meta)}</div>`:''}
+      ${path}${fund}</div>`;
   };
   const load=()=>{
     shell('<div class="hint" style="color:var(--route)">Searching live fares &amp; award space…</div>');
@@ -557,16 +573,23 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
     ]).then(([offers,awards])=>{
       if(seq!==flSeq) return;
       const leg=mergeLiveAwards(mergeLiveLeg({options:[]},offers,trip.cabin),Array.isArray(awards)?awards:null,date);
-      const aw=leg.options.filter(f=>f.points), cash=leg.options.filter(f=>!f.points);
-      const disp=[...aw,...cash];
+      // the chosen cabin leads; award space in other cabins is offered
+      // separately instead of mixed in
+      const awMain=leg.options.filter(f=>f.points&&f.cabin===trip.cabin);
+      const awOther=leg.options.filter(f=>f.points&&f.cabin!==trip.cabin);
+      const cash=leg.options.filter(f=>!f.points);
+      const disp=[...awMain,...awOther,...cash];
       const near=(leg.nearbyAwards??[]).map(n=>`${n.date} · ${(n.miles/1000).toFixed(0)}K ${SOURCES[n.programId]?.short??''} ${n.cabin}`).join(' · ');
+      const list=(rows,off)=>rows.map((f,i)=>rowHTML(f,off+i)).join('');
       const body=disp.length?`
-        ${aw.length?`<label class="minihead">Book with points</label><div class="optlist" style="max-height:168px">${aw.map((f,i)=>rowHTML(f,i)).join('')}</div>`:''}
-        ${cash.length?`<label class="minihead">Cash fares</label><div class="optlist" style="max-height:150px">${cash.map((f,i)=>rowHTML(f,aw.length+i)).join('')}</div>`:''}
+        ${awMain.length?`<label class="minihead">${escH(trip.cabin)} · book with points</label><div class="optlist" style="max-height:190px">${list(awMain,0)}</div>`:''}
+        ${!awMain.length&&awOther.length?`<div class="hint">No ${escH(trip.cabin)} award space this date — other cabins have seats:</div>`:''}
+        ${awOther.length?`<label class="minihead">${awMain.length?'Other cabins with award space':'Award space · other cabins'}</label><div class="optlist" style="max-height:${awMain.length?120:190}px">${list(awOther,awMain.length)}</div>`:''}
+        ${cash.length?`<label class="minihead">Cash fares — economy market prices</label><div class="optlist" style="max-height:150px">${list(cash,awMain.length+awOther.length)}</div>`:''}
         ${near?`<div class="hint">Award space on nearby dates: ${near}</div>`:''}`
         :'<div class="hint">No live results for this route &amp; date yet — try another cabin, or pick "Decide later" and the flight desk keeps searching.</div>';
       shell(body);
-      qcard.querySelectorAll('.opt[data-i]').forEach(o=>o.onclick=()=>onPick(disp[+o.dataset.i]));
+      qcard.querySelectorAll('.fcard[data-i]').forEach(o=>o.onclick=()=>onPick(disp[+o.dataset.i]));
     });
   };
   load();
