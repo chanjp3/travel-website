@@ -32,6 +32,13 @@ export function cashSearchLink(from, to, date, cabin) {
   return `https://www.google.com/travel/flights?q=${encodeURIComponent(q)}`;
 }
 
+/** Hand the search to the user's seats.aero Pro login — their website runs
+ *  the LIVE award search that the Partner API tier withholds. */
+export function seatsSearchLink(from, to, date) {
+  if (!from || !to || !date) return null;
+  return `https://seats.aero/search?origin_airport=${from}&destination_airport=${to}&start_date=${date}&end_date=${date}`;
+}
+
 export function bookLink(programId, from, to, date, cabin) {
   if (!programId || !from || !to || !date) return null;
   const biz = cabin === "Business";

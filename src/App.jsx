@@ -19,7 +19,7 @@ import { suggestCities } from "./lib/suggest.js";
 import { HOTEL_GROUPS, brandGroupOf } from "./lib/hotelBrands.js";
 import { bestAlternate } from "./lib/altGateways.js";
 import { serializeTrip, hydrateTrip, tripLocal } from "./lib/tripStore.js";
-import { bookLink, cashSearchLink } from "./lib/bookLinks.js";
+import { bookLink, cashSearchLink, seatsSearchLink } from "./lib/bookLinks.js";
 import { saveTripCloud, loadTripCloud } from "./api/client.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
 import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels, liveHotelRow } from "./lib/liveMerge.js";
@@ -553,16 +553,28 @@ export default function App() {
                   <div key={key}>
                     <div className="flex items-baseline justify-between gap-2 flex-wrap">
                       <SectionLabel>{dir}</SectionLabel>
-                      {cashSearchLink(lf, lt, ld, cabinPref) && (
-                        <a
-                          href={cashSearchLink(lf, lt, ld, cabinPref)}
-                          target="_blank" rel="noreferrer"
-                          className="text-xs font-bold mb-2"
-                          style={{ color: T.flight, textDecoration: "underline" }}
-                        >
-                          Compare live on Google Flights ↗
-                        </a>
-                      )}
+                      <span className="flex gap-3 mb-2">
+                        {cashSearchLink(lf, lt, ld, cabinPref) && (
+                          <a
+                            href={cashSearchLink(lf, lt, ld, cabinPref)}
+                            target="_blank" rel="noreferrer"
+                            className="text-xs font-bold"
+                            style={{ color: T.flight, textDecoration: "underline" }}
+                          >
+                            Google Flights ↗
+                          </a>
+                        )}
+                        {seatsSearchLink(lf, lt, ld) && (
+                          <a
+                            href={seatsSearchLink(lf, lt, ld)}
+                            target="_blank" rel="noreferrer"
+                            className="text-xs font-bold"
+                            style={{ color: T.flight, textDecoration: "underline" }}
+                          >
+                            seats.aero live ↗
+                          </a>
+                        )}
+                      </span>
                     </div>
                     {loading && actualsOnly && shown.length === 0 ? (
                       <div className="space-y-2">
