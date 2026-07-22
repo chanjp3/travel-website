@@ -109,3 +109,107 @@ input[type="date"] {
   animation: skel-sweep 1.2s linear infinite;
   border: 1px solid rgba(140, 165, 210, 0.14);
 }
+
+/* ── flight-path graphic: airline-style routing timeline ─────────────── */
+.fp {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 12px 14px 10px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(140, 165, 210, 0.14);
+  border-radius: 8px;
+}
+.fp-end { text-align: center; flex: none; }
+.fp-time {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 15px;
+  font-weight: 700;
+  color: #edf1f8;
+  white-space: nowrap;
+}
+.fp-plus {
+  font-size: 9px;
+  color: #dde6f4;
+  vertical-align: super;
+  margin-left: 2px;
+}
+.fp-code {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  color: #7fb0ff;
+  margin-top: 3px;
+}
+.fp-seg { flex: 1 1 0; min-width: 56px; text-align: center; }
+.fp-no {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.16em;
+  color: #8c96a8;
+  margin-bottom: 4px;
+  white-space: nowrap;
+}
+.fp-line {
+  position: relative;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(127, 176, 255, 0.2), #7fb0ff 30%, #7fb0ff 70%, rgba(127, 176, 255, 0.2));
+  box-shadow: 0 0 8px rgba(127, 176, 255, 0.45);
+}
+.fp-line::before,
+.fp-line::after {
+  content: "";
+  position: absolute;
+  top: -2.5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #7fb0ff;
+  box-shadow: 0 0 6px rgba(127, 176, 255, 0.8);
+}
+.fp-line::before { left: -2px; }
+.fp-line::after { right: -2px; }
+.fp-plane {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -54%);
+  font-size: 12px;
+  line-height: 1;
+  color: #edf3ff;
+  background: #04060b;
+  padding: 0 5px;
+  text-shadow: 0 0 8px rgba(200, 225, 255, 0.9);
+}
+.fp-dur {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.1em;
+  color: #8c96a8;
+  margin-top: 4px;
+}
+.fp-stop { text-align: center; flex: none; min-width: 52px; }
+.fp-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #dde6f4;
+  border: 2px solid #04060b;
+  box-shadow: 0 0 8px rgba(221, 230, 244, 0.75);
+  margin: 0 auto 3px;
+}
+.fp-lay {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 8.5px;
+  letter-spacing: 0.08em;
+  color: #dde6f4;
+  margin-top: 2px;
+}
+@media (max-width: 640px) {
+  .fp { gap: 8px; padding: 10px 10px 8px; }
+  .fp-time { font-size: 13px; }
+  .fp-seg { min-width: 40px; }
+  .fp-stop { min-width: 42px; }
+}

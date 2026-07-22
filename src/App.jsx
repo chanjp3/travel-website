@@ -22,7 +22,8 @@ import { serializeTrip, hydrateTrip, tripLocal } from "./lib/tripStore.js";
 import { bookLink, cashSearchLink } from "./lib/bookLinks.js";
 import { saveTripCloud, loadTripCloud } from "./api/client.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
-import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels, liveHotelRow, connectionMin, fmtMin, segTime } from "./lib/liveMerge.js";
+import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels, liveHotelRow } from "./lib/liveMerge.js";
+import { flightPathHTML } from "./lib/flightPath.js";
 import { AIRPORTS, airportByIata } from "./lib/airports.js";
 import { defaultDepart, buildSchedule, toISO, addDays, fmtDay, fmtShort, dateForDay } from "./lib/dates.js";
 import { Chip, SectionLabel, NightsStepper, PayToggle } from "./components/ui.jsx";
@@ -707,31 +708,14 @@ export default function App() {
                                 {f.dep ? `${f.dep}${f.arr ? `–${f.arr}` : ""} · ` : ""}{f.via}{f.dur ? ` · ${f.dur}` : ""}
                               </span>
                             </div>
-                            {f.flightNos && !(f.segs?.length > 1) && (
-                              <p className="text-xs mt-1" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{f.flightNos}</p>
-                            )}
-                            {f.segs?.length > 1 && (
-                              <div className="mt-1.5 rounded-lg px-2.5 py-2" style={{ background: T.paper, border: `1px solid ${T.mist}` }}>
-                                <p className="text-xs font-bold mb-1" style={{ color: T.flight, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.08em" }}>
-                                  {f.routeChain}
-                                </p>
-                                {f.segs.map((s, i) => {
-                                  const cm = connectionMin(f.segs, i);
-                                  return (
-                                    <React.Fragment key={i}>
-                                      {i > 0 && (
-                                        <p className="text-xs mt-0.5" style={{ color: T.gold }}>
-                                          ⏱ {cm != null ? `${fmtMin(cm)} connection` : "connection"} in {s.from}
-                                        </p>
-                                      )}
-                                      <p className="text-xs mt-0.5" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
-                                        {s.from} {segTime(s.dep) ?? "—"} → {s.to}{segTime(s.arr) ? ` ${segTime(s.arr)}` : ""} · {s.carrier}{s.num}
-                                      </p>
-                                    </React.Fragment>
+                            {(() => {
+                              const fp = flightPathHTML(f);
+                              return fp
+                                ? <div dangerouslySetInnerHTML={{ __html: fp }} />
+                                : f.flightNos && (
+                                    <p className="text-xs mt-1" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{f.flightNos}</p>
                                   );
-                                })}
-                              </div>
-                            )}
+                            })()}
                             {f.roundTrip && (
                               <p className="text-xs mt-1" style={{ color: T.pine }}>
                                 <b>Live round-trip fare:</b> {usd(f.rtTotal)} covers both directions for your dates —
