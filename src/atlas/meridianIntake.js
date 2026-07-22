@@ -12,7 +12,7 @@ import * as topojson from "topojson-client";
 import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
 import { geoSearch, liveHotelsDetailed, liveMode, searchPOI, liveFlights, liveAwards } from "../api/client.js";
-import { mergeLiveLeg, mergeLiveAwards } from "../lib/liveMerge.js";
+import { mergeLiveLeg, mergeLiveAwards, connectionMin, fmtMin, segTime } from "../lib/liveMerge.js";
 import { bestPath, describePath } from "../lib/funding.js";
 import { SOURCES, DEFAULT_BALANCES } from "../data/transferPartners.js";
 import { showDetailMap, hideDetailMap, destroyDetailMap } from "./detailMap.js";
@@ -542,10 +542,16 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
     const tag=f.awardLive?`LIVE AWARD${f.seats>0?` · ${f.seats} seat${f.seats!==1?'s':''}`:''}`
       :f.testData?'TEST DATA':f.live?(f.bookable?'BOOKABLE':'LIVE'):'';
     const fund=f.points?`<div class="sub">${describePath(bestPath(f.programId,f.points,getBal()),f.programId)} + $${Math.round(f.fees??0)} taxes</div>`:'';
+    const segsHtml=f.segs?.length>1?`<div class="sub" style="margin-top:4px;font-family:var(--mono)">
+      <b style="color:var(--route);letter-spacing:.08em">${f.routeChain}</b><br>
+      ${f.segs.map((sg,j)=>{
+        const cm=connectionMin(f.segs,j);
+        return `${j>0?`<span style="color:var(--gold)">⏱ ${cm!=null?fmtMin(cm)+' connection':'connection'} in ${sg.from}</span><br>`:''}${sg.from} ${segTime(sg.dep)??'—'} → ${sg.to}${segTime(sg.arr)?' '+segTime(sg.arr):''} · ${sg.carrier}${sg.num}`;
+      }).join('<br>')}</div>`:'';
     return `<div class="opt" data-i="${i}">
       <span class="iata">${price}</span>
       <span class="nm">${f.airline} · ${f.cabin}${tag?` <span class="sub" style="color:var(--ok);display:inline">${tag}</span>`:''}
-        <div class="sub">${sub}</div>${fund}</span></div>`;
+        <div class="sub">${sub}</div>${segsHtml}${fund}</span></div>`;
   };
   const load=()=>{
     shell('<div class="hint" style="color:var(--route)">Searching live fares &amp; award space…</div>');
