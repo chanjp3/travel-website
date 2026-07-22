@@ -20,7 +20,7 @@ import { HOTEL_GROUPS, brandGroupOf } from "./lib/hotelBrands.js";
 import { bestAlternate } from "./lib/altGateways.js";
 import { serializeTrip, hydrateTrip, tripLocal } from "./lib/tripStore.js";
 import { bookLink, cashSearchLink, seatsSearchLink } from "./lib/bookLinks.js";
-import { saveTripCloud, loadTripCloud } from "./api/client.js";
+import { saveTripCloud, loadTripCloud, captureAuthFromHash, authMe, authLoginUrl, authLogout, myTrips } from "./api/client.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
 import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels, liveHotelRow } from "./lib/liveMerge.js";
 import { flightPathHTML } from "./lib/flightPath.js";
@@ -232,6 +232,18 @@ export default function App() {
     setRouteIdx(0); setFlightSel({}); setTripsOpen(false); setStep(1);
   };
   const autoSaved = useMemo(() => (tripsOpen ? tripLocal.loadAuto() : null), [tripsOpen]);
+
+  // Account sign-in (Google via the worker). Dormant (501) until the worker
+  // has its OAuth secrets; the OAuth return lands here as #token=… in the URL.
+  const [auth, setAuth] = useState({ status: null });
+  const [acctTrips, setAcctTrips] = useState([]);
+  useEffect(() => { captureAuthFromHash(); authMe().then(setAuth); }, []);
+  useEffect(() => {
+    if (!tripsOpen || auth.status !== 200) return;
+    let on = true;
+    myTrips().then((ts) => on && setAcctTrips(ts));
+    return () => { on = false; };
+  }, [tripsOpen, auth.status]);
 
   const jr = useMemo(() => jrPassAnalysis(route), [route]);
   const days = useMemo(() => (route ? buildDays(route, nights, originId) : []), [route, nights, originId]);
@@ -1122,9 +1134,54 @@ export default function App() {
             </div>
 
             <div className="rounded-xl p-4 space-y-2" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+              <span className="text-sm font-bold">Account</span>
+              {auth.status === 200 ? (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs" style={{ color: T.inkSoft }}>Signed in as <b style={{ color: T.ink }}>{auth.user?.email}</b></p>
+                    <button
+                      onClick={() => { authLogout(); setAuth({ status: 401 }); setAcctTrips([]); }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-bold shrink-0" style={{ border: `1px solid ${T.mist}`, color: T.inkSoft }}
+                    >Sign out</button>
+                  </div>
+                  {acctTrips.length === 0 && <p className="text-xs" style={{ color: T.inkSoft }}>Cloud saves you make while signed in are filed here — on any device.</p>}
+                  {acctTrips.map((t) => (
+                    <div key={t.code + t.savedAt} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2" style={{ background: T.paper, border: `1px solid ${T.mist}` }}>
+                      <div className="text-left flex-1 min-w-0">
+                        <div className="text-sm font-semibold truncate">{t.label ?? t.code}</div>
+                        <div className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{t.code}{t.savedAt ? ` · ${fmtDay(new Date(t.savedAt).toISOString().slice(0, 10))}` : ""}</div>
+                      </div>
+                      <button
+                        onClick={async () => {
+                          setCloud({ busy: true });
+                          const { data, error } = await loadTripCloud(t.code);
+                          if (error) setCloud({ err: error });
+                          else { setCloud({}); applyTrip(hydrateTrip(data)); }
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold text-white shrink-0" style={{ background: T.deep }}
+                      >Load</button>
+                    </div>
+                  ))}
+                </>
+              ) : auth.status === 401 ? (
+                <>
+                  <p className="text-xs" style={{ color: T.inkSoft }}>Sign in to file cloud saves under your account and load them from any device.</p>
+                  <a
+                    href={authLoginUrl() ?? "#"}
+                    className="block w-full py-2.5 rounded-xl text-sm font-bold text-center text-white" style={{ background: T.deep }}
+                  >Sign in with Google</a>
+                </>
+              ) : (
+                <p className="text-xs" style={{ color: T.inkSoft }}>
+                  {auth.status == null ? "Checking sign-in…" : "Account sign-in isn't switched on yet — the sync codes below work everywhere in the meantime."}
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-xl p-4 space-y-2" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
               <span className="text-sm font-bold">Any device — sync code</span>
               <p className="text-xs" style={{ color: T.inkSoft }}>
-                Save to the cloud and get a short code; enter it on any device to pick the trip back up. Codes last 90 days. (Full account sign-in is on the roadmap.)
+                Save to the cloud and get a short code; enter it on any device to pick the trip back up. Codes last 90 days.
               </p>
               {step > 0 && destIds.length > 0 && (
                 <button
