@@ -573,22 +573,40 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
     ]).then(([offers,awards])=>{
       if(seq!==flSeq) return;
       const leg=mergeLiveAwards(mergeLiveLeg({options:[]},offers,trip.cabin),Array.isArray(awards)?awards:null,date);
-      // the chosen cabin leads; award space in other cabins is offered
-      // separately instead of mixed in
+      // The chosen cabin OWNS the panel: only its options show open.
+      // Everything else — other cabins' award space, economy-only cached
+      // cash under a premium search — collapses behind explicit toggles,
+      // so switching cabins visibly changes what you're looking at.
       const awMain=leg.options.filter(f=>f.points&&f.cabin===trip.cabin);
       const awOther=leg.options.filter(f=>f.points&&f.cabin!==trip.cabin);
       const cash=leg.options.filter(f=>!f.points);
+      const cashIsCabin=trip.cabin==='Economy';
       const disp=[...awMain,...awOther,...cash];
       const near=(leg.nearbyAwards??[]).map(n=>`${n.date} · ${(n.miles/1000).toFixed(0)}K ${SOURCES[n.programId]?.short??''} ${n.cabin}`).join(' · ');
       const list=(rows,off)=>rows.map((f,i)=>rowHTML(f,off+i)).join('');
+      const fold=(id,label,inner,open)=>`
+        <button class="fold${open?' open':''}" id="${id}" type="button">${label} <span class="fold-c">${open?'▴':'▾'}</span></button>
+        <div class="fold-body" data-for="${id}"${open?'':' style="display:none"'}>${inner}</div>`;
+      const awOtherInner=`<div class="optlist" style="max-height:170px">${list(awOther,awMain.length)}</div>`;
+      const cashInner=`<div class="optlist" style="max-height:150px">${list(cash,awMain.length+awOther.length)}</div>`;
       const body=disp.length?`
         ${awMain.length?`<label class="minihead">${escH(trip.cabin)} · book with points</label><div class="optlist" style="max-height:190px">${list(awMain,0)}</div>`:''}
-        ${!awMain.length&&awOther.length?`<div class="hint">No ${escH(trip.cabin)} award space this date — other cabins have seats:</div>`:''}
-        ${awOther.length?`<label class="minihead">${awMain.length?'Other cabins with award space':'Award space · other cabins'}</label><div class="optlist" style="max-height:${awMain.length?120:190}px">${list(awOther,awMain.length)}</div>`:''}
-        ${cash.length?`<label class="minihead">Cash fares — economy market prices</label><div class="optlist" style="max-height:150px">${list(cash,awMain.length+awOther.length)}</div>`:''}
+        ${!awMain.length?`<div class="hint"><b style="color:var(--ink)">No ${escH(trip.cabin)} award space on this date.</b>${awOther.length?' Other cabins do have seats:':''}${near?'':' Try a nearby date or another cabin.'}</div>`:''}
+        ${awOther.length?fold('awOther',`${awOther.length} award option${awOther.length!==1?'s':''} in other cabins`,awOtherInner,!awMain.length):''}
+        ${cash.length?(cashIsCabin
+          ?`<label class="minihead">Cash fares</label>${cashInner}`
+          :fold('cashF',`${cash.length} economy cash fare${cash.length!==1?'s':''} (cached market prices)`,cashInner,!awMain.length&&!awOther.length)):''}
+        ${!cashIsCabin?`<div class="finenote">${escH(trip.cabin)} cash pricing isn't in the free fare cache — <a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">check ${escH(trip.cabin)} fares on Google Flights ↗</a></div>`:''}
         ${near?`<div class="hint">Award space on nearby dates: ${near}</div>`:''}`
         :'<div class="hint">No live results for this route &amp; date yet — try another cabin, or pick "Decide later" and the flight desk keeps searching.</div>';
       shell(body);
+      qcard.querySelectorAll('.fold').forEach(b=>b.onclick=()=>{
+        const bd=qcard.querySelector(`.fold-body[data-for="${b.id}"]`);
+        const open=bd.style.display==='none';
+        bd.style.display=open?'':'none';
+        b.classList.toggle('open',open);
+        b.querySelector('.fold-c').textContent=open?'▴':'▾';
+      });
       qcard.querySelectorAll('.fcard[data-i]').forEach(o=>o.onclick=()=>onPick(disp[+o.dataset.i]));
     });
   };
