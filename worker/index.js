@@ -282,19 +282,55 @@ async function seatsSearch(env, from, to, date, flexDays = 0) {
   su.searchParams.set("end_date", flexDays ? shiftDate(date, flexDays) : date);
   su.searchParams.set("take", flexDays ? "300" : "100");
   const j = await seatsGet(env, su.toString());
-  const cabin = (a, c) => (a[`${c}Available`] ? {
-    miles: +a[`${c}MileageCost`] || null,
-    taxes: a[`${c}TotalTaxes`] != null ? Math.round(+a[`${c}TotalTaxes`]) / 100 : null,
-    currency: a.TaxesCurrency ?? "USD",
-    seats: a[`${c}RemainingSeats`] ?? null,
-    direct: !!a[`${c}Direct`],
-    airlines: a[`${c}Airlines`] ?? "",
-  } : null);
-  return (j.data ?? []).map((a) => ({
-    id: a.ID, source: a.Source, date: a.Date,
-    economy: cabin(a, "Y"), premium: cabin(a, "W"),
-    business: cabin(a, "J"), first: cabin(a, "F"),
-  }));
+  return (j.data ?? []).map(mapAvail);
+}
+
+const seatsCabinOf = (a, c) => (a[`${c}Available`] ? {
+  miles: +a[`${c}MileageCost`] || null,
+  taxes: a[`${c}TotalTaxes`] != null ? Math.round(+a[`${c}TotalTaxes`]) / 100 : null,
+  currency: a.TaxesCurrency ?? "USD",
+  seats: a[`${c}RemainingSeats`] ?? null,
+  direct: !!a[`${c}Direct`],
+  airlines: a[`${c}Airlines`] ?? "",
+} : null);
+function mapAvail(a) {
+  return {
+    id: a.ID, source: a.Source ?? a.source, date: a.Date ?? a.date,
+    economy: seatsCabinOf(a, "Y"), premium: seatsCabinOf(a, "W"),
+    business: seatsCabinOf(a, "J"), first: seatsCabinOf(a, "F"),
+  };
+}
+
+/** Live award search (POST /partnerapi/live) — gated by Seats.aero to
+ *  approved commercial partners; Pro keys get 401/403. Attempted only
+ *  when the cache is empty on a main-leg lookup, fails soft, and a
+ *  denied key is remembered so it costs one request per isolate, ever.
+ *  Lights up automatically if the key is upgraded. */
+let seatsLiveDenied = false;
+async function seatsLive(env, q) {
+  if (seatsLiveDenied) return [];
+  const cache = globalThis.caches?.default;
+  const key = `https://seats.aero/partnerapi/live?o=${q.from}&d=${q.to}&t=${q.date}`;
+  if (cache) {
+    const hit = await cache.match(key);
+    if (hit) return hit.json();
+  }
+  const res = await fetch("https://seats.aero/partnerapi/live", {
+    method: "POST",
+    headers: { "Partner-Authorization": env.SEATSAERO_KEY, "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ origin_airport: q.from, destination_airport: q.to, departure_date: q.date }),
+  });
+  if ([401, 402, 403, 404, 405].includes(res.status)) { seatsLiveDenied = true; return []; }
+  if (!res.ok) return [];
+  const j = await res.json().catch(() => null);
+  const list = Array.isArray(j) ? j : j?.data ?? j?.results ?? [];
+  const rows = list.map(mapAvail).filter((r) => AWARD_CABINS.some((c) => r[c]));
+  if (cache && rows.length) {
+    await cache.put(key, new Response(JSON.stringify(rows), {
+      headers: { "Cache-Control": "public, max-age=1200", "Content-Type": "application/json" },
+    }));
+  }
+  return rows;
 }
 
 const AWARD_CABINS = ["economy", "premium", "business", "first"];
@@ -553,9 +589,12 @@ export default {
           if (q.detail) await attachTripDetail(env, exact);
           return json(rows);
         }
-        // No direct award space that day → try two-booking plans via hubs.
-        if (!q.via) return json(rows);
-        return json([...rows, ...(await awardConnections(env, q))]);
+        // No direct award space that day → two-booking plans via hubs,
+        // then (main legs only) a live-search attempt for upgraded keys.
+        const conns = q.via ? await awardConnections(env, q) : [];
+        let liveRows = [];
+        if (q.detail && !conns.length) liveRows = await seatsLive(env, q).catch(() => []);
+        return json([...rows, ...conns, ...liveRows]);
       }
       return json({ error: "not found" }, 404);
     } catch (e) {

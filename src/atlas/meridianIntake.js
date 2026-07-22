@@ -14,6 +14,7 @@ import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
 import { geoSearch, liveHotelsDetailed, liveMode, searchPOI, liveFlights, liveAwards } from "../api/client.js";
 import { mergeLiveLeg, mergeLiveAwards } from "../lib/liveMerge.js";
 import { flightPathHTML, chainPathHTML } from "../lib/flightPath.js";
+import { seatsSearchLink } from "../lib/bookLinks.js";
 import { bestPath, describePath } from "../lib/funding.js";
 import { SOURCES, DEFAULT_BALANCES } from "../data/transferPartners.js";
 import { showDetailMap, hideDetailMap, destroyDetailMap } from "./detailMap.js";
@@ -532,7 +533,11 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
         <button class="btn ghost sm" id="flSkip">Decide later →</button>
         ${onBack?'<button class="btn ghost sm" id="flBk">Back</button>':''}
       </div>
-      <div class="finenote"><a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">Compare live on Google Flights ↗</a></div>`);
+      <div class="finenote">
+        <a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">Compare live on Google Flights ↗</a>
+        &nbsp;·&nbsp;
+        <a href="${seatsSearchLink(from.iata,to.iata,date)}" target="_blank" rel="noreferrer" style="color:var(--route)">Live award search on seats.aero ↗</a>
+      </div>`);
     qcard.querySelectorAll('.cab').forEach(b=>b.onclick=()=>{ trip.cabin=b.dataset.cab; load(); });
     $('#flSkip').onclick=()=>onPick(null);
     if(onBack){ const bk=$('#flBk'); if(bk) bk.onclick=onBack; }
@@ -591,7 +596,7 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
       const cashInner=`<div class="optlist" style="max-height:150px">${list(cash,awMain.length+awOther.length)}</div>`;
       const body=disp.length?`
         ${awMain.length?`<label class="minihead">${escH(trip.cabin)} · book with points</label><div class="optlist" style="max-height:190px">${list(awMain,0)}</div>`:''}
-        ${!awMain.length?`<div class="hint"><b style="color:var(--ink)">No ${escH(trip.cabin)} award space on this date.</b>${awOther.length?' Other cabins do have seats:':''}${near?'':' Try a nearby date or another cabin.'}</div>`:''}
+        ${!awMain.length?`<div class="hint"><b style="color:var(--ink)">No cached ${escH(trip.cabin)} award space on this date.</b>${awOther.length?' Other cabins do have seats:':` Seats.aero's crawler hasn't cached this route — <a href="${seatsSearchLink(from.iata,to.iata,date)}" target="_blank" rel="noreferrer" style="color:var(--route)">run their live search ↗</a> (included in your Pro login).`}</div>`:''}
         ${awOther.length?fold('awOther',`${awOther.length} award option${awOther.length!==1?'s':''} in other cabins`,awOtherInner,!awMain.length):''}
         ${cash.length?(cashIsCabin
           ?`<label class="minihead">Cash fares</label>${cashInner}`
