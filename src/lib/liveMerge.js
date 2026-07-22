@@ -17,6 +17,18 @@ const parseDur = (iso) => {
 const hmStr = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
 const timeOf = (ts) => (ts ? ts.slice(11, 16) : null);
 
+/** Minutes on the ground between segment i-1's landing and segment i's
+ *  departure — null when either time is unknown. Exported for the route
+ *  breakdown UI. */
+export function connectionMin(segs, i) {
+  const arr = segs?.[i - 1]?.arr, dep = segs?.[i]?.dep;
+  if (!arr || !dep) return null;
+  const d = Date.parse(dep) - Date.parse(arr);
+  return Number.isFinite(d) && d > 0 && d < 48 * 3600000 ? Math.round(d / 60000) : null;
+}
+export const fmtMin = hmStr;
+export const segTime = timeOf;
+
 /** Merge live flight offers (one date) into a leg's option set. Offers carry
  *  their own cabin when the provider only serves one (Aviasales cached fares
  *  are economy market prices); otherwise they're the requested cabin. */
@@ -60,6 +72,10 @@ export function mergeLiveLeg(leg, offers, cabin) {
       dur: it.duration ? hmStr(parseDur(it.duration)) : "",
       dep: timeOf(segs[0].dep), arr: timeOf(segs[segs.length - 1].arr),
       flightNos: segs.map((s) => `${s.carrier}${s.num}`).join(" · "),
+      // Full routing, spelled out: the airport chain and each segment
+      // with its own times, so connections are never a mystery.
+      routeChain: segs.length > 1 ? [segs[0].from, ...segs.map((s) => s.to)].join(" → ") : null,
+      segs: segs.map((s) => ({ from: s.from, to: s.to, dep: s.dep ?? null, arr: s.arr ?? null, carrier: s.carrier, num: s.num })),
       stops, est: false, live: true, cashOnly: true,
     };
   });
