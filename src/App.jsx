@@ -30,7 +30,6 @@ import { RouteSpine } from "./components/RouteSpine.jsx";
 import { JourneyMap } from "./components/JourneyMap.jsx";
 import { MeridianIntake } from "./components/MeridianIntake.jsx";
 import { AirportField } from "./components/AirportField.jsx";
-import { LegBuilder } from "./components/LegBuilder.jsx";
 
 const Mark = ({ size = 34 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
@@ -64,9 +63,9 @@ export default function App() {
   const [tourHotels, setTourHotels] = useState({}); // {cid: live hotel object picked on the map tour}
   const [hotelPay, setHotelPay] = useState({});
   const [legVia, setLegVia] = useState({ out: null, back: null }); // manual layover hub per leg
+  const [intakePicks, setIntakePicks] = useState({ out: null, back: null }); // flights chosen during the map flow
   const [showAllFl, setShowAllFl] = useState({});   // per-leg "show more flights"
   const [adjOpen, setAdjOpen] = useState(false);    // airports & routing panel
-  const [legBuilderOpen, setLegBuilderOpen] = useState(false); // flight-first mode
   const [endAt, setEndAt] = useState(null);       // "where do you want to end?" pin
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [originAir, setOriginAir] = useState(null);  // departure airport from the intake
@@ -148,6 +147,22 @@ export default function App() {
   const outLegD = displayLeg(outLeg, "out");
   const backLegD = displayLeg(backLeg, "back");
 
+  // A flight picked during the map flow pre-selects the matching desk row
+  // as soon as live data lands (matched by program+miles for awards, by
+  // airline+price for cash — desk row ids are regenerated per merge).
+  useEffect(() => {
+    const match = (leg, pick) => pick && leg?.options.find((f) =>
+      pick.points
+        ? f.programId === pick.programId && f.cabin === pick.cabin && f.points === pick.points
+        : f.cashOnly && Math.round(f.cash) === Math.round(pick.cash ?? -1) && f.airline === pick.airline);
+    setFlightSel((sel) => {
+      let next = sel;
+      if (!sel.out) { const m = match(outLeg, intakePicks.out); if (m) next = { ...next, out: m.id }; }
+      if (!sel.back) { const m = match(backLeg, intakePicks.back); if (m) next = { ...next, back: m.id }; }
+      return next;
+    });
+  }, [outLeg, backLeg, intakePicks]);
+
   const outId = flightSel.out ?? pickDefault(outLegD);
   const backId = flightSel.back ?? pickDefault(backLegD);
   const fOut = outLegD?.options.find((f) => f.id === outId);
@@ -192,12 +207,12 @@ export default function App() {
   const [saveName, setSaveName] = useState("");
   const [codeInput, setCodeInput] = useState("");
   const [cloud, setCloud] = useState({});
-  const stateBundle = { originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, tourHotels, legVia, hotelPrefs, cabinPref, pointsOnly, wCost, balances };
+  const stateBundle = { originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, tourHotels, legVia, intakePicks, hotelPrefs, cabinPref, pointsOnly, wCost, balances };
   useEffect(() => {
     if (step === 0 || !destIds.length) return;
     const t = setTimeout(() => tripLocal.autosave(serializeTrip(stateBundle)), 800);
     return () => clearTimeout(t);
-  }, [step, originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, tourHotels, legVia, hotelPrefs, cabinPref, pointsOnly, wCost, balances]);
+  }, [step, originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, tourHotels, legVia, intakePicks, hotelPrefs, cabinPref, pointsOnly, wCost, balances]);
   const applyTrip = (data) => {
     if (!data) return;
     hydrateTrip(data);
@@ -209,6 +224,7 @@ export default function App() {
     setHotelPicks(data.hotelPicks ?? {});
     setTourHotels(data.tourHotels ?? {});
     setLegVia(data.legVia ?? { out: null, back: null });
+    setIntakePicks(data.intakePicks ?? { out: null, back: null });
     if (data.hotelPrefs) setHotelPrefs((p) => ({ ...p, ...data.hotelPrefs }));
     setCabinPref(data.cabinPref ?? "Business"); setPointsOnly(data.pointsOnly ?? true); setWCost(data.wCost ?? 0.5);
     if (data.balances) setBalances(data.balances);
@@ -346,6 +362,9 @@ export default function App() {
     });
     setRouteIdx(0); setFlightSel({}); setHotelPicks(hp); setTourHotels(th); setHotelPay({});
     setLegVia({ out: null, back: null }); setShowAllFl({});
+    // Flights are chosen FIRST, inside the map flow — carry them to the desk.
+    if (t.cabin) setCabinPref(t.cabin);
+    setIntakePicks({ out: t.outFlight ?? null, back: t.backFlight ?? null });
     setStep(1);
   };
 
@@ -405,7 +424,7 @@ export default function App() {
         </div>
       </header>
 
-      <MeridianIntake hidden={step !== 0} initialDate={departDate} onComplete={handlePlottedTrip} />
+      <MeridianIntake hidden={step !== 0} initialDate={departDate} balances={balances} onComplete={handlePlottedTrip} />
       {step === 0 && (
         <>
           <button
@@ -415,17 +434,7 @@ export default function App() {
           >
             <MapPin size={13} style={{ color: T.flight }} /> Trips
           </button>
-          <button
-            onClick={() => setLegBuilderOpen(true)}
-            className="fixed top-5 right-24 mr-2 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold"
-            style={{ zIndex: 46, border: `1px solid ${T.mist}`, color: T.ink, background: "rgba(8,13,24,.92)", boxShadow: "0 2px 14px rgba(0,0,0,.5)" }}
-          >
-            <Plane size={13} style={{ color: T.flight }} /> Flight-first builder
-          </button>
         </>
-      )}
-      {legBuilderOpen && (
-        <LegBuilder cabinPref={cabinPref} balances={balances} onExit={() => setLegBuilderOpen(false)} />
       )}
       {step > 0 && (
       <main className="max-w-5xl mx-auto px-4 py-8">

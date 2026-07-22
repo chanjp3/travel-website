@@ -104,6 +104,8 @@
 .btn.ghost{background:none;border-color:var(--hair);color:var(--ink-soft)}
 .btn.ghost:hover{border-color:var(--route);color:var(--route);box-shadow:var(--glow)}
 .btn.sm{padding:8px 14px;font-size:9.5px}
+.btn.cab{flex:none;padding:7px 10px;font-size:8.5px;letter-spacing:.2em}
+.btn.cab-sel{border-color:var(--route);color:var(--ink);background:rgba(127,176,255,.12);box-shadow:var(--glow)}
 .row{display:flex;gap:8px;align-items:center}
 .backlink{font-family:var(--mono);font-size:9.5px;letter-spacing:.24em;color:var(--ink-soft);background:none;border:none;
   cursor:pointer;padding:6px 0;margin-top:6px;text-transform:uppercase;transition:color .25s}

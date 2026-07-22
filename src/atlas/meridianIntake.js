@@ -11,7 +11,10 @@ import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
-import { geoSearch, liveHotelsDetailed, liveMode, searchPOI } from "../api/client.js";
+import { geoSearch, liveHotelsDetailed, liveMode, searchPOI, liveFlights, liveAwards } from "../api/client.js";
+import { mergeLiveLeg, mergeLiveAwards } from "../lib/liveMerge.js";
+import { bestPath, describePath } from "../lib/funding.js";
+import { SOURCES, DEFAULT_BALANCES } from "../data/transferPartners.js";
 import { showDetailMap, hideDetailMap, destroyDetailMap } from "./detailMap.js";
 import { HOTEL_GROUPS, brandGroupOf } from "../lib/hotelBrands.js";
 import { searchCities } from "../data/world.js";
@@ -45,6 +48,7 @@ const SCAFFOLD = `
     <div class="tseg" data-step="from"><div class="tl">From</div><div class="tv" id="t-from">———</div></div>
     <div class="tseg" data-step="date"><div class="tl">Departs</div><div class="tv" id="t-date">———</div></div>
     <div class="tseg" data-step="to"><div class="tl">To</div><div class="tv" id="t-to">———</div></div>
+    <div class="tseg" data-step="flight"><div class="tl">Flight</div><div class="tv" id="t-flight">———</div></div>
     <div class="tseg" data-step="nights"><div class="tl">Nights</div><div class="tv" id="t-nights">—</div></div>
     <div class="tseg" data-step="stops"><div class="tl">Stops</div><div class="tv" id="t-stops">—</div></div>
     <div class="tseg" data-step="return"><div class="tl">Returns</div><div class="tv" id="t-return">———</div></div>
@@ -57,7 +61,8 @@ const SCAFFOLD = `
 <div id="toast"></div>
 `;
 
-export function mountMeridian(container, { onComplete, initialDate } = {}) {
+export function mountMeridian(container, { onComplete, initialDate, getBalances } = {}) {
+const getBal = () => getBalances?.() ?? DEFAULT_BALANCES;
   container.innerHTML = SCAFFOLD;
 const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const DUR = RM ? 0 : 1400;
@@ -207,7 +212,7 @@ function showCard(html){
   qcard.onclick=()=>{ if(qcard.classList.contains('min')){ qcard.classList.remove('min'); mb.textContent='—'; } };
 }
 function hideCard(){ qcard.classList.remove('show'); }
-const FOOT_LABELS={from:'Choosing origin',date:'Setting departure',to:'Choosing destination',nights:'Allocating nights',stops:'Plotting the route',return:'Return & home'};
+const FOOT_LABELS={from:'Choosing origin',date:'Setting departure',to:'Choosing destination',flight:'Choosing your flight',nights:'Allocating nights',stops:'Plotting the route',return:'Return & home'};
 function ticket(seg,val,active){
   const el = $('#t-'+seg);
   if(val!==undefined && val!==null){ el.innerHTML=val; el.closest('.tseg').classList.add('done'); }
@@ -304,6 +309,7 @@ const trip = {
   nights:0,
   stops:[],           // {city,lat,lon,nights,airports}
   endCity:null, endAirport:null, hotelPicks:{},
+  cabin:'Business', outFlight:null, backFlight:null,
   home:null,          // airport flying back to
   legModes:[]
 };
@@ -323,9 +329,9 @@ function markCountry(f){
 function resetTrip(){
   hideCard(); hideDetailMap(); tourSeq++;
   gMarkers.selectAll('.hotelpin').remove();
-  Object.assign(trip,{date:null,origin:{country:null,city:null,airport:null},dest:{country:null,gwCity:null,airport:null},nights:0,stops:[],endCity:null,endAirport:null,hotelPicks:{},home:null,legModes:[]});
+  Object.assign(trip,{date:null,origin:{country:null,city:null,airport:null},dest:{country:null,gwCity:null,airport:null},nights:0,stops:[],endCity:null,endAirport:null,hotelPicks:{},home:null,legModes:[],outFlight:null,backFlight:null});
   container.querySelectorAll('.tseg').forEach(s=>s.classList.remove('done'));
-  ['from','date','to','nights','stops','return'].forEach(k=>{ const el=$('#t-'+k); if(el) el.textContent='———'; });
+  ['from','date','to','flight','nights','stops','return'].forEach(k=>{ const el=$('#t-'+k); if(el) el.textContent='———'; });
   stepOriginCountry();
 }
 container.querySelector('#railRestart')?.addEventListener('click',resetTrip);
@@ -487,7 +493,7 @@ function stepArrivalAirport(){
     ticket('to',`${c.city} <span class="iata">${a.iata}</span>`);
     hideCard(); clearDots();
     toast(`Landing locked: ${a.iata} — ${c.city}`);
-    zoomToFeature(trip.dest.country).then(()=>stepNights());
+    zoomToFeature(trip.dest.country).then(()=>stepOutboundFlight());
   }
   if(c.airports.length===1) return pick(c.airports[0]);
   drawCityDots(c.airports.map(a=>({city:a.iata+' · '+shortName(a),lat:a.lat,lon:a.lon,large:a.large,_ap:a})),d=>pick(d._ap),12);
@@ -501,6 +507,89 @@ function stepArrivalAirport(){
     <button class="backlink" id="bk">← change city</button>`);
   qcard.querySelectorAll('.opt').forEach(o=>o.onclick=()=>pick(c.airports[+o.dataset.i]));
   $('#bk').onclick=()=>{ zoomToFeature(trip.dest.country).then(()=>stepArrivalCity()); };
+}
+
+/* ---- 4d. the flight itself — chosen first, inside the flow ---- */
+const CABINS=['Economy','Premium Economy','Business','First'];
+let flSeq=0;
+function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
+  const seq=++flSeq;
+  ticket(null,null,stub);
+  const gfQ=`Flights from ${from.iata} to ${to.iata} on ${date} one way${trip.cabin==='Business'?' business class':trip.cabin==='First'?' first class':''}`;
+  const gf=`https://www.google.com/travel/flights?q=${encodeURIComponent(gfQ)}`;
+  const shell=(body)=>{
+    if(seq!==flSeq) return;
+    showCard(`
+      <div class="eyebrow">${eyebrow}</div>
+      <div class="question">${question}</div>
+      <div class="hint">${from.iata} → ${to.iata} · ${fmtDate(date)} · live fares &amp; award space</div>
+      <div class="row" style="flex-wrap:wrap;margin-bottom:10px">${CABINS.map(c=>`
+        <button class="btn ghost sm cab${trip.cabin===c?' cab-sel':''}" data-cab="${c}">${c}</button>`).join('')}
+      </div>
+      ${body}
+      <div class="row" style="margin-top:10px">
+        <button class="btn ghost sm" id="flSkip">Decide later →</button>
+        ${onBack?'<button class="btn ghost sm" id="flBk">Back</button>':''}
+      </div>
+      <div class="finenote"><a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">Compare live on Google Flights ↗</a></div>`);
+    qcard.querySelectorAll('.cab').forEach(b=>b.onclick=()=>{ trip.cabin=b.dataset.cab; load(); });
+    $('#flSkip').onclick=()=>onPick(null);
+    if(onBack){ const bk=$('#flBk'); if(bk) bk.onclick=onBack; }
+  };
+  const rowHTML=(f,i)=>{
+    const price=f.points?`${(f.points/1000).toFixed(0)}K`:`$${Math.round(f.cash).toLocaleString()}`;
+    const sub=[f.dep?`${f.dep}${f.arr?'–'+f.arr:''}`:null,f.via,f.dur,f.flightNos].filter(Boolean).join(' · ');
+    const tag=f.awardLive?`LIVE AWARD${f.seats>0?` · ${f.seats} seat${f.seats!==1?'s':''}`:''}`
+      :f.testData?'TEST DATA':f.live?(f.bookable?'BOOKABLE':'LIVE'):'';
+    const fund=f.points?`<div class="sub">${describePath(bestPath(f.programId,f.points,getBal()),f.programId)} + $${Math.round(f.fees??0)} taxes</div>`:'';
+    return `<div class="opt" data-i="${i}">
+      <span class="iata">${price}</span>
+      <span class="nm">${f.airline} · ${f.cabin}${tag?` <span class="sub" style="color:var(--ok);display:inline">${tag}</span>`:''}
+        <div class="sub">${sub}</div>${fund}</span></div>`;
+  };
+  const load=()=>{
+    shell('<div class="hint" style="color:var(--route)">Searching live fares &amp; award space…</div>');
+    Promise.all([
+      liveFlights(from.iata,to.iata,date,trip.cabin).catch(()=>null),
+      liveAwards(from.iata,to.iata,date).catch(()=>null),
+    ]).then(([offers,awards])=>{
+      if(seq!==flSeq) return;
+      const leg=mergeLiveAwards(mergeLiveLeg({options:[]},offers,trip.cabin),Array.isArray(awards)?awards:null,date);
+      const aw=leg.options.filter(f=>f.points), cash=leg.options.filter(f=>!f.points);
+      const disp=[...aw,...cash];
+      const near=(leg.nearbyAwards??[]).map(n=>`${n.date} · ${(n.miles/1000).toFixed(0)}K ${SOURCES[n.programId]?.short??''} ${n.cabin}`).join(' · ');
+      const body=disp.length?`
+        ${aw.length?`<label class="minihead">Book with points</label><div class="optlist" style="max-height:168px">${aw.map((f,i)=>rowHTML(f,i)).join('')}</div>`:''}
+        ${cash.length?`<label class="minihead">Cash fares</label><div class="optlist" style="max-height:150px">${cash.map((f,i)=>rowHTML(f,aw.length+i)).join('')}</div>`:''}
+        ${near?`<div class="hint">Award space on nearby dates: ${near}</div>`:''}`
+        :'<div class="hint">No live results for this route &amp; date yet — try another cabin, or pick "Decide later" and the flight desk keeps searching.</div>';
+      shell(body);
+      qcard.querySelectorAll('.opt[data-i]').forEach(o=>o.onclick=()=>onPick(disp[+o.dataset.i]));
+    });
+  };
+  load();
+}
+function stepOutboundFlight(){
+  stepFlight({
+    from:trip.origin.airport, to:trip.dest.airport, date:trip.date,
+    eyebrow:'Leg 01 — The flight out', question:'Choose your flight', stub:'flight',
+    onPick:(f)=>{ trip.outFlight=f;
+      ticket('flight', f?`${f.points?(f.points/1000).toFixed(0)+'K pts':'$'+Math.round(f.cash).toLocaleString()} <span class="iata">${trip.cabin.split(' ')[0].slice(0,3).toUpperCase()}</span>`:'at the desk');
+      hideCard(); toast(f?'Flight locked in — now the nights':'No problem — the flight desk keeps searching');
+      stepNights(); },
+    onBack:()=>stepArrivalAirport(),
+  });
+}
+function stepReturnFlight(){
+  const dep=trip.endAirport??trip.dest.airport;
+  stepFlight({
+    from:dep, to:trip.home, date:addDaysISO(trip.date,Math.max(trip.nights,1)),
+    eyebrow:'Leg 03 — The flight home', question:'Choose your return flight', stub:'return',
+    onPick:(f)=>{ trip.backFlight=f;
+      hideCard(); toast(f?'Return locked in':'You can choose at the desk');
+      stepSummary(); },
+    onBack:()=>stepHome(),
+  });
 }
 
 /* ---- 5. nights ---- */
@@ -837,7 +926,7 @@ function stepHome(){
     trip.home=a;
     ticket('return',`${a.city} <span class="iata">${a.iata}</span>`);
     hideCard();
-    stepSummary();
+    stepReturnFlight();
   };
 }
 
@@ -893,6 +982,9 @@ function stepSummary(){
         arrivalCity: { name: trip.dest.gwCity.city, lat: trip.dest.gwCity.lat, lon: trip.dest.gwCity.lon },
         arrivalAirport: { iata: trip.dest.airport.iata, name: trip.dest.airport.name, lat: trip.dest.airport.lat, lon: trip.dest.airport.lon },
         endAirport: trip.endAirport ? { iata: trip.endAirport.iata, name: trip.endAirport.name, lat: trip.endAirport.lat, lon: trip.endAirport.lon } : null,
+        cabin: trip.cabin,
+        outFlight: trip.outFlight ?? null,
+        backFlight: trip.backFlight ?? null,
         hotelPicks: Object.fromEntries(Object.entries(trip.hotelPicks).filter(([, v]) => v)),
         hotelPrefs: { stars: tourFilters.stars, rating: tourFilters.rating, budget: tourFilters.budget, group: tourFilters.group },
         stops: trip.stops.map(s=>({ name: s.city, lat: s.lat, lon: s.lon, nights: s.nights, iata: s.airports?.[0]?.iata ?? null })),
