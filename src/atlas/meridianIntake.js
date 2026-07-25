@@ -537,8 +537,11 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
         <a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">Compare live on Google Flights ↗</a>
         &nbsp;·&nbsp;
         <a href="${seatsSearchLink(from.iata,to.iata,date)}" target="_blank" rel="noreferrer" style="color:var(--route)">Live award search on seats.aero ↗</a>
+        &nbsp;·&nbsp;
+        <button type="button" class="flre">↻ re-check</button>
       </div>`);
     qcard.querySelectorAll('.cab').forEach(b=>b.onclick=()=>{ trip.cabin=b.dataset.cab; load(); });
+    qcard.querySelectorAll('.flre').forEach(b=>b.onclick=()=>load());
     $('#flSkip').onclick=()=>onPick(null);
     if(onBack){ const bk=$('#flBk'); if(bk) bk.onclick=onBack; }
   };
@@ -574,7 +577,7 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
     shell('<div class="hint" style="color:var(--route)">Searching live fares &amp; award space…</div>');
     Promise.all([
       liveFlights(from.iata,to.iata,date,trip.cabin).catch(()=>null),
-      liveAwards(from.iata,to.iata,date).catch(()=>null),
+      liveAwards(from.iata,to.iata,date,trip.cabin).catch(()=>null),
     ]).then(([offers,awards])=>{
       if(seq!==flSeq) return;
       const leg=mergeLiveAwards(mergeLiveLeg({options:[]},offers,trip.cabin),Array.isArray(awards)?awards:null,date);
@@ -596,7 +599,10 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
       const cashInner=`<div class="optlist" style="max-height:150px">${list(cash,awMain.length+awOther.length)}</div>`;
       const body=disp.length?`
         ${awMain.length?`<label class="minihead">${escH(trip.cabin)} · book with points</label><div class="optlist" style="max-height:190px">${list(awMain,0)}</div>`:''}
-        ${!awMain.length?`<div class="hint"><b style="color:var(--ink)">No cached ${escH(trip.cabin)} award space on this date.</b>${awOther.length?' Other cabins do have seats:':` Seats.aero's crawler hasn't cached this route — <a href="${seatsSearchLink(from.iata,to.iata,date)}" target="_blank" rel="noreferrer" style="color:var(--route)">run their live search ↗</a> (included in your Pro login).`}</div>`:''}
+        ${!awMain.length?`<div class="hint"><b style="color:var(--ink)">No cached ${escH(trip.cabin)} award space on this date${awOther.length?' — other cabins do have seats':''}.</b>
+          The free feed only refreshes when someone runs a live search on seats.aero.
+          <a href="${seatsSearchLink(from.iata,to.iata,date)}" target="_blank" rel="noreferrer" style="color:var(--route)">Run one there ↗</a> (pre-filled, ~30s with your Pro login), then
+          <button type="button" class="flre">↻ re-check</button> — fresh finds land straight back here.</div>`:''}
         ${awOther.length?fold('awOther',`${awOther.length} award option${awOther.length!==1?'s':''} in other cabins`,awOtherInner,!awMain.length):''}
         ${cash.length?(cashIsCabin
           ?`<label class="minihead">Cash fares</label>${cashInner}`
