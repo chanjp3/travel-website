@@ -223,6 +223,7 @@
 .trow.big .k{font-family:var(--disp);font-weight:400;text-transform:uppercase;letter-spacing:.18em;color:var(--ink);font-size:12px}
 .trow.big .v{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--route);font-size:16px}
 .finenote{font-size:10.5px;color:var(--ink-faint);line-height:1.6;margin-top:12px;font-weight:300}
+.flre{background:none;border:none;padding:0;font:inherit;color:var(--route);cursor:pointer;text-decoration:underline}
 
 /* ---------- intro ---------- */
 #intro{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;

@@ -101,8 +101,9 @@ export default function App() {
   const mirrorRT = route && route.inGw.gw === route.outGw.gw && depAir === retAir;
   const liveOut = useLiveLeg(depAir, route?.inGw.gw, departDate, cabinPref, mirrorRT ? schedule?.returnDate : null, legVia.out);
   const liveBack = useLiveLeg(route?.outGw.gw, retAir, schedule?.returnDate, cabinPref, null, legVia.back);
-  const awardsOut = useLiveAwards(depAir, route?.inGw.gw, departDate);
-  const awardsBack = useLiveAwards(route?.outGw.gw, retAir, schedule?.returnDate);
+  const [awardsTick, setAwardsTick] = useState(0);
+  const awardsOut = useLiveAwards(depAir, route?.inGw.gw, departDate, cabinPref, awardsTick);
+  const awardsBack = useLiveAwards(route?.outGw.gw, retAir, schedule?.returnDate, cabinPref, awardsTick);
   const outLeg = useMemo(
     () => mergeLiveAwards(mergeLiveLeg(outLegEst, liveOut.offers, cabinPref), awardsOut.rows, departDate),
     [outLegEst, liveOut.offers, cabinPref, awardsOut.rows, departDate]
@@ -585,6 +586,16 @@ export default function App() {
                           >
                             seats.aero live ↗
                           </a>
+                        )}
+                        {liveMode() && (
+                          <button
+                            onClick={() => setAwardsTick((n) => n + 1)}
+                            className="text-xs font-bold"
+                            style={{ color: T.flight, textDecoration: "underline" }}
+                            title="Re-fetch award space — run the seats.aero live search first and fresh finds land here"
+                          >
+                            ↻ re-check
+                          </button>
                         )}
                       </span>
                     </div>

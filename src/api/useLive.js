@@ -27,8 +27,10 @@ export function useLiveLeg(fromAir, toAir, date, cabin, ret = null, viaHub = nul
 }
 
 /** Seats.aero award space for a leg. `rows: null` = not configured/failed
- *  (keep chart estimates); `rows: []` = searched, nothing bookable. */
-export function useLiveAwards(fromAir, toAir, date) {
+ *  (keep chart estimates); `rows: []` = searched, nothing bookable.
+ *  `cabin` makes the worker escalate when the chosen cabin has no cached
+ *  space; bump `tick` to re-fetch (e.g. after a seats.aero live search). */
+export function useLiveAwards(fromAir, toAir, date, cabin = null, tick = 0) {
   const [state, set] = useState({ rows: null, loading: false });
   useEffect(() => {
     if (!liveMode() || !fromAir || !toAir || !date) {
@@ -37,11 +39,11 @@ export function useLiveAwards(fromAir, toAir, date) {
     }
     let on = true;
     set({ rows: null, loading: true });
-    liveAwards(fromAir, toAir, date).then(
+    liveAwards(fromAir, toAir, date, cabin).then(
       (rows) => on && set({ rows: Array.isArray(rows) ? rows : null, loading: false })
     );
     return () => { on = false; };
-  }, [fromAir, toAir, date]);
+  }, [fromAir, toAir, date, cabin, tick]);
   return state;
 }
 

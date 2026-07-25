@@ -122,9 +122,17 @@ export const liveFlightsProbe = (from, to, date, cabin) =>
 
 /** Seats.aero award availability for a route+date (null when not configured).
  *  `via` lets the worker build two-booking plans through hubs when the
- *  direct pair has no space; `detail` fetches real times & flight numbers. */
-export const liveAwards = (from, to, date) =>
-  get("/api/awards", { from, to, date, detail: 1, flex: 2, via: connectionHubs(from, to).join(",") || null });
+ *  direct pair has no space; `detail` fetches real times & flight numbers.
+ *  `cabin` tells the worker which cabin actually answers the search — an
+ *  empty wanted cabin escalates even when other cabins have cached seats. */
+const awardCabinKey = (cabin) =>
+  cabin === "Business" ? "business"
+  : cabin === "First" ? "first"
+  : cabin === "Premium Economy" ? "premium"
+  : cabin === "Economy" ? "economy"
+  : null;
+export const liveAwards = (from, to, date, cabin = null) =>
+  get("/api/awards", { from, to, date, detail: 1, flex: 2, cabin: awardCabinKey(cabin), via: connectionHubs(from, to).join(",") || null });
 
 /** Cheap single-call probe — no hub fan-out, no detail. For the advisor. */
 export const liveAwardsProbe = (from, to, date) => get("/api/awards", { from, to, date });

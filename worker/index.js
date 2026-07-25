@@ -692,16 +692,22 @@ export default {
         // rows ride along so the app can offer a date shift.
         const exact = rows.filter((r) => r.date === q.date);
         const hasSpace = exact.some((r) => AWARD_CABINS.some((c) => r[c]));
-        if (hasSpace) {
+        // The traveler's chosen cabin is the bar — cached economy rows
+        // don't answer a Business search, so an empty wanted cabin still
+        // escalates even when other cabins have seats.
+        const cabin = AWARD_CABINS.includes(q.cabin) ? q.cabin : null;
+        const hasWanted = cabin ? exact.some((r) => r[cabin]) : hasSpace;
+        if (hasSpace && hasWanted) {
           // Real times & flight numbers for the rows the app will show.
           if (q.detail) await attachTripDetail(env, exact);
           return json(rows);
         }
-        // No direct award space that day → two-booking plans via hubs,
-        // then (main legs only) a live-search attempt for upgraded keys.
-        const conns = q.via ? await awardConnections(env, q) : [];
+        // No space (in the wanted cabin) that day → two-booking plans via
+        // hubs, then (main legs only) a live-search attempt for upgraded keys.
+        const conns = !hasSpace && q.via ? await awardConnections(env, q) : [];
         let liveRows = [];
         if (q.detail && !conns.length) liveRows = await seatsLive(env, q).catch(() => []);
+        if (q.detail && hasSpace) await attachTripDetail(env, exact);
         return json([...rows, ...conns, ...liveRows]);
       }
       return json({ error: "not found" }, 404);
