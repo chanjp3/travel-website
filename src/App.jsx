@@ -55,7 +55,9 @@ export default function App() {
   const [nights, setNights] = useState({});
   const [wCost, setWCost] = useState(0.5);
   const [cabinPref, setCabinPref] = useState("Business");
-  const [pointsOnly, setPointsOnly] = useState(true);
+  // Cash-first: the itinerary is built on real fares & rates; points enter
+  // as explicit "pay with points instead" swaps once the trip is formed.
+  const [pointsOnly, setPointsOnly] = useState(false);
   const [balances, setBalances] = useState({ ...DEFAULT_BALANCES });
   const [routeIdx, setRouteIdx] = useState(0);
   const [flightSel, setFlightSel] = useState({});   // { out: optId, back: optId }
@@ -126,7 +128,8 @@ export default function App() {
       const anyAward = pool.find((f) => f.points);
       if (anyAward) return anyAward.id;
     }
-    return pool[0]?.id ?? leg.options[0]?.id ?? null;
+    // Cash-first: default to a real fare; awards wait for an explicit swap.
+    return pool.find((f) => !f.points)?.id ?? pool[0]?.id ?? leg.options[0]?.id ?? null;
   };
   // Hotel preferences: minimum stars, minimum quality rating, nightly budget.
   const [hotelPrefs, setHotelPrefs] = useState({ stars: 0, rating: 0, budget: 0, group: "" });
@@ -228,7 +231,7 @@ export default function App() {
     setLegVia(data.legVia ?? { out: null, back: null });
     setIntakePicks(data.intakePicks ?? { out: null, back: null });
     if (data.hotelPrefs) setHotelPrefs((p) => ({ ...p, ...data.hotelPrefs }));
-    setCabinPref(data.cabinPref ?? "Business"); setPointsOnly(data.pointsOnly ?? true); setWCost(data.wCost ?? 0.5);
+    setCabinPref(data.cabinPref ?? "Business"); setPointsOnly(data.pointsOnly ?? false); setWCost(data.wCost ?? 0.5);
     if (data.balances) setBalances(data.balances);
     setRouteIdx(0); setFlightSel({}); setTripsOpen(false); setStep(1);
   };
@@ -272,7 +275,7 @@ export default function App() {
       const hotel = hotels.find((h) => h.name.toLowerCase() === pickedName(cid)) ?? list[0];
       const n = nights[cid] ?? 2;
       const path = hotel.pts ? bestPath(hotel.pid, hotel.pts * n, balances) : null;
-      const requested = hotelPay[cid] ?? (pointsOnly && path ? "points" : path ? "points" : "cash");
+      const requested = hotelPay[cid] ?? (pointsOnly && path ? "points" : "cash");
       return { city: cid, hotel, nights: n, sample, path, mode: requested === "points" && path ? "points" : "cash" };
     });
   }, [route, hotelPicks, tourHotels, hotelPay, nights, balances, pointsOnly, liveHotelsMap, hotelPrefs]);
@@ -287,6 +290,46 @@ export default function App() {
       hotels: hotelChoices, route, jr,
     });
   }, [route, fOut, fBack, flightPay, pathOut, pathBack, hotelChoices, jr, pointsOnly, origin]);
+
+  // "Pay with points instead" — after the itinerary is formed in cash, find
+  // every line a fundable award or hotel program could take over, with the
+  // real saving and the cents-per-point the swap earns.
+  const pointsOps = useMemo(() => {
+    if (!route || !fOut || !fBack) return [];
+    const ops = [];
+    const legOp = (key, leg, sel, label, retOptions = 1) => {
+      if (!sel || sel.points || sel.rtIncluded) return; // already points / covered
+      if (sel.roundTrip && !retOptions) return; // swap would strand the return leg
+      const cands = (leg?.options ?? [])
+        .filter((f) => f.points && f.cabin === cabinPref && f.id !== sel.id)
+        .map((f) => ({ f, path: bestPath(f.programId, f.points, balances) }))
+        .filter((x) => x.path);
+      if (!cands.length) return;
+      const best = cands.sort((a, b) => a.f.points - b.f.points)[0];
+      const cashNow = sel.cash ?? 0;
+      const save = Math.max(0, Math.round(cashNow - (best.f.fees ?? 0)));
+      const cpp = cashNow && best.f.points ? (cashNow - (best.f.fees ?? 0)) / best.f.points * 100 : null;
+      ops.push({
+        kind: "flight", key, label, f: best.f, path: best.path, save, cpp,
+        breaksRT: !!sel.roundTrip,
+        apply: () => { setFlightSel((s) => ({ ...s, [key]: best.f.id })); setFlightPay((p) => ({ ...p, [key]: "points" })); },
+      });
+    };
+    legOp("out", outLegD, fOut, `${depAir} → ${route.inGw.gw}`, backLegD?.options?.length ?? 0);
+    legOp("back", backLegD, fBack, `${route.outGw.gw} → ${retAir}`);
+    hotelChoices.forEach((hc) => {
+      if (hc.mode === "points" || !hc.hotel.pts || !hc.path) return;
+      const cashNow = (hc.hotel.cash ?? 0) * hc.nights;
+      ops.push({
+        kind: "hotel", key: hc.city, label: `${hc.hotel.name} · ${hc.nights} nt`,
+        hotel: hc.hotel, nights: hc.nights, path: hc.path,
+        save: Math.round(cashNow),
+        cpp: cashNow && hc.hotel.pts ? cashNow / (hc.hotel.pts * hc.nights) * 100 : null,
+        apply: () => setHotelPay((p) => ({ ...p, [hc.city]: "points" })),
+      });
+    });
+    return ops;
+  }, [route, fOut, fBack, outLegD, backLegD, cabinPref, balances, hotelChoices, depAir, retAir]);
 
   const totalNights = destIds.reduce((s, c) => s + (nights[c] ?? 2), 0);
   const japanSuggestions = useMemo(() => {
@@ -553,7 +596,9 @@ export default function App() {
                   if (pointsOnly && hasAward) return f.points && bestPath(f.programId, f.points, balances);
                   return true;
                 });
-                const shown = visible.length ? visible : leg.options.filter((f) => f.cabin === cabinPref);
+                const shownRaw = visible.length ? visible : leg.options.filter((f) => f.cabin === cabinPref);
+                // Cash-first ordering: real fares lead; award rows follow.
+                const shown = pointsOnly ? shownRaw : [...shownRaw.filter((f) => !f.points), ...shownRaw.filter((f) => f.points)];
                 const actualsOnly = liveMode() && !showEst[key];
                 // Collapse long lists behind a "more options" expander; the
                 // selected flight is always kept visible even while collapsed.
@@ -1014,6 +1059,50 @@ export default function App() {
                   <span className="text-sm" style={{ color: T.inkSoft }}>Retail value: {usd(ledger.retail)}</span>
                   <span className="text-sm font-bold" style={{ color: T.pine }}>Points save you {usd(Math.max(0, ledger.retail - ledger.cash))}</span>
                 </div>
+              </div>
+
+              {/* After-the-fact points swaps: the itinerary stands in cash;
+                  each line here is an optional takeover by your balances. */}
+              <div className="mt-4">
+                <SectionLabel>Pay with points instead</SectionLabel>
+                {pointsOps.length ? (
+                  <div className="space-y-2">
+                    <p className="text-xs" style={{ color: T.inkSoft, maxWidth: "70ch" }}>
+                      Your itinerary is priced with real cash fares and rates. These lines could be covered by your
+                      points instead — points could take another <b style={{ color: T.pine }}>{usd(pointsOps.reduce((s, o) => s + o.save, 0))}</b> off the cash total.
+                    </p>
+                    {pointsOps.map((op) => (
+                      <div key={op.kind + op.key} className="rounded-xl px-4 py-3 flex items-center justify-between gap-3 flex-wrap" style={{ background: T.pineTint, border: `1px solid ${T.pine}33` }}>
+                        <div className="min-w-0">
+                          <div className="text-sm font-semibold">
+                            {op.label}
+                            {op.kind === "flight" && <span className="font-normal" style={{ color: T.inkSoft }}> · {op.f.airline} {op.f.cabin}</span>}
+                          </div>
+                          <div className="text-xs mt-0.5" style={{ color: T.inkSoft }}>
+                            {op.kind === "flight"
+                              ? `${(op.f.points / 1000).toFixed(0)}K ${SOURCES[op.f.programId]?.short ?? "miles"} + ${usd(op.f.fees ?? 0)} taxes · ${describePath(op.path, op.f.programId)}`
+                              : `${((op.hotel.pts * op.nights) / 1000).toFixed(0)}K ${op.hotel.program} · ${describePath(op.path, op.hotel.pid)}`}
+                            {op.cpp != null && op.cpp > 0 && ` · ${op.cpp.toFixed(1)}¢/pt`}
+                            {op.breaksRT && " · replaces the round-trip fare — the return then books separately"}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace", color: T.pine }}>−{usd(op.save)}</span>
+                          <button
+                            onClick={op.apply}
+                            className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
+                            style={{ background: T.pine }}
+                          >Use points</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs rounded-xl px-4 py-3" style={{ color: T.inkSoft, background: T.card, border: `1px solid ${T.mist}` }}>
+                    No fundable points options for the current picks{liveMode() && " — award space moves fast; the ↻ re-check on the flights page pulls the latest"}.
+                    Lines already paid with points don't appear here.
+                  </p>
+                )}
               </div>
 
               {/* Points usage vs balances */}

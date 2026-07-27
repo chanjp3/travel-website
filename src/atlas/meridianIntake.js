@@ -585,30 +585,32 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
       // Everything else — other cabins' award space, economy-only cached
       // cash under a premium search — collapses behind explicit toggles,
       // so switching cabins visibly changes what you're looking at.
+      // Cash-first: the itinerary is built on real fares. Points options
+      // stay one fold away — requested after the fact, never in the way.
       const awMain=leg.options.filter(f=>f.points&&f.cabin===trip.cabin);
       const awOther=leg.options.filter(f=>f.points&&f.cabin!==trip.cabin);
       const cash=leg.options.filter(f=>!f.points);
       const cashIsCabin=trip.cabin==='Economy';
-      const disp=[...awMain,...awOther,...cash];
+      const disp=[...cash,...awMain,...awOther];
       const near=(leg.nearbyAwards??[]).map(n=>`${n.date} · ${(n.miles/1000).toFixed(0)}K ${SOURCES[n.programId]?.short??''} ${n.cabin}`).join(' · ');
       const list=(rows,off)=>rows.map((f,i)=>rowHTML(f,off+i)).join('');
       const fold=(id,label,inner,open)=>`
         <button class="fold${open?' open':''}" id="${id}" type="button">${label} <span class="fold-c">${open?'▴':'▾'}</span></button>
         <div class="fold-body" data-for="${id}"${open?'':' style="display:none"'}>${inner}</div>`;
-      const awOtherInner=`<div class="optlist" style="max-height:170px">${list(awOther,awMain.length)}</div>`;
-      const cashInner=`<div class="optlist" style="max-height:150px">${list(cash,awMain.length+awOther.length)}</div>`;
-      const body=disp.length?`
-        ${awMain.length?`<label class="minihead">${escH(trip.cabin)} · book with points</label><div class="optlist" style="max-height:190px">${list(awMain,0)}</div>`:''}
+      const nAw=awMain.length+awOther.length;
+      const ptsInner=`
+        ${awMain.length?`<label class="minihead">${escH(trip.cabin)} · book with points</label><div class="optlist" style="max-height:170px">${list(awMain,cash.length)}</div>`:''}
         ${!awMain.length?`<div class="hint"><b style="color:var(--ink)">No cached ${escH(trip.cabin)} award space on this date${awOther.length?' — other cabins do have seats':''}.</b>
           The free feed only refreshes when someone runs a live search on seats.aero.
           <a href="${seatsSearchLink(from.iata,to.iata,date)}" target="_blank" rel="noreferrer" style="color:var(--route)">Run one there ↗</a> (pre-filled, ~30s with your Pro login), then
           <button type="button" class="flre">↻ re-check</button> — fresh finds land straight back here.</div>`:''}
-        ${awOther.length?fold('awOther',`${awOther.length} award option${awOther.length!==1?'s':''} in other cabins`,awOtherInner,!awMain.length):''}
-        ${cash.length?(cashIsCabin
-          ?`<label class="minihead">Cash fares</label>${cashInner}`
-          :fold('cashF',`${cash.length} economy cash fare${cash.length!==1?'s':''} (cached market prices)`,cashInner,!awMain.length&&!awOther.length)):''}
-        ${!cashIsCabin?`<div class="finenote">${escH(trip.cabin)} cash pricing isn't in the free fare cache — <a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">check ${escH(trip.cabin)} fares on Google Flights ↗</a></div>`:''}
-        ${near?`<div class="hint">Award space on nearby dates: ${near}</div>`:''}`
+        ${awOther.length?`<label class="minihead">Other cabins</label><div class="optlist" style="max-height:150px">${list(awOther,cash.length+awMain.length)}</div>`:''}
+        ${near?`<div class="hint">Award space on nearby dates: ${near}</div>`:''}`;
+      const body=disp.length?`
+        ${cash.length?`<label class="minihead">${cashIsCabin?'Live fares — pay cash':'Cached economy fares — pay cash'}</label><div class="optlist" style="max-height:190px">${list(cash,0)}</div>`:''}
+        ${!cash.length?`<div class="hint"><b style="color:var(--ink)">No cached cash fares for this date.</b> <a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">Check live prices on Google Flights ↗</a> — or pick from the points options below.</div>`:''}
+        ${!cashIsCabin&&cash.length?`<div class="finenote">${escH(trip.cabin)} cash pricing isn't in the free fare cache — <a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">check ${escH(trip.cabin)} fares on Google Flights ↗</a></div>`:''}
+        ${fold('awPts',`✦ ${nAw?`${nAw} points option${nAw!==1?'s':''} for this leg`:'Points options for this leg'}`,ptsInner,!cash.length)}`
         :'<div class="hint">No live results for this route &amp; date yet — try another cabin, or pick "Decide later" and the flight desk keeps searching.</div>';
       shell(body);
       qcard.querySelectorAll('.fold').forEach(b=>b.onclick=()=>{
