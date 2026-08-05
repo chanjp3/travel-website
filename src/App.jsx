@@ -565,10 +565,29 @@ export default function App() {
                 className="text-xs font-bold px-3 py-2 rounded-xl"
                 style={{ border: `1.5px solid ${T.mist}`, color: T.inkSoft, background: adjOpen ? T.card : T.paper }}
               >
-                Adjust airports & routing {adjOpen ? "▴" : "▾"}
+                Adjust dates, airports & routing {adjOpen ? "▴" : "▾"}
               </button>
               {adjOpen && (
                 <div className="grid md:grid-cols-2 gap-4 rounded-xl p-4 mt-2" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+                  <div className="md:col-span-2 flex items-center gap-x-4 gap-y-2 flex-wrap">
+                    <SectionLabel>Dates</SectionLabel>
+                    <label className="flex items-center gap-2 text-xs font-bold" style={{ color: T.inkSoft }}>
+                      Departure
+                      <input
+                        type="date"
+                        value={departDate}
+                        min={toISO(new Date())}
+                        onChange={(e) => { if (e.target.value) { setDepartDate(e.target.value); setFlightSel({}); } }}
+                        className="px-3 py-2 rounded-lg text-sm font-semibold"
+                        style={{ border: `1px solid ${T.mist}`, background: T.paper, color: T.ink, colorScheme: "dark", fontFamily: "'IBM Plex Mono', monospace" }}
+                      />
+                    </label>
+                    {schedule && (
+                      <span className="text-xs" style={{ color: T.inkSoft }}>
+                        Return lands on <b style={{ color: T.ink }}>{fmtDay(schedule.returnDate)}</b> — it follows your nights per stop, adjustable below.
+                      </span>
+                    )}
+                  </div>
                   <div className="space-y-2">
                     <SectionLabel>Outbound</SectionLabel>
                     <AirportField label="Depart from" value={depAir} onPick={(a) => { if (a) { setOriginAir(a.iata); setFlightSel({}); } }} />
@@ -582,8 +601,9 @@ export default function App() {
                     <AirportField label="Connect via (optional)" value={legVia.back} allowClear onPick={(a) => { setLegVia({ ...legVia, back: a?.iata ?? null }); setFlightSel({}); }} />
                   </div>
                   <p className="text-xs md:col-span-2" style={{ color: T.inkSoft }}>
-                    Changing an airport re-prices everything live — no need to re-plot the map. Setting <b>connect via</b>{" "}
-                    makes the system build and price an itinerary through that exact airport, even when through-fares exist.
+                    Changing the date or an airport re-prices everything live — flights, award space, hotels — no need to
+                    re-plot the map. Setting <b>connect via</b> makes the system build and price an itinerary through that
+                    exact airport, even when through-fares exist.
                   </p>
                 </div>
               )}
