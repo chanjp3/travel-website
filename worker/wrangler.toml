@@ -8,6 +8,8 @@ compatibility_date = "2026-01-01"
 #   wrangler secret put LITEAPI_KEY           # hotel rates (liteapi.travel, free key)
 #                                             # (Hotellook shut down Oct 2025)
 #   wrangler secret put SEATSAERO_KEY        # Seats.aero Partner API (live awards)
+#   wrangler secret put SERPAPI_KEY          # live Google Flights results (serpapi.com,
+#                                            #   free tier ~100-250 searches/mo, no card)
 #   wrangler secret put GOOGLE_CLIENT_ID     # Google OAuth (account sign-in) — from
 #   wrangler secret put GOOGLE_CLIENT_SECRET #   console.cloud.google.com → APIs → Credentials;
 #                                            #   authorized redirect URI must be

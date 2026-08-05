@@ -58,6 +58,7 @@ export function mergeLiveLeg(leg, offers, cabin) {
       cash: Math.round(o.price / (o.roundTrip ? 2 : 1)),
       bookable: !!o.bookable,
       testData: !!o.testData,
+      gfLive: !!o.gfLive,
       roundTrip: !!o.roundTrip,
       rtTotal: o.roundTrip ? Math.round(o.price) : null,
       selfTransfer: !!o.selfTransfer,

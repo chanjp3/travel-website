@@ -777,7 +777,7 @@ export default function App() {
                                 ) : f.live ? (
                                   f.testData
                                     ? <Chip tint={T.flightTint} color={T.flight}>TEST DATA</Chip>
-                                    : <Chip tint={T.pineTint} color={T.pine}>{f.bookable ? "BOOKABLE" : "LIVE"}</Chip>
+                                    : <Chip tint={T.pineTint} color={T.pine}>{f.gfLive ? "GOOGLE FLIGHTS" : f.bookable ? "BOOKABLE" : "LIVE"}</Chip>
                                 ) : f.noSpace ? (
                                   <Chip tint={T.flightTint} color={T.flight}>no space this date</Chip>
                                 ) : (
