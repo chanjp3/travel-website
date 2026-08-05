@@ -14,7 +14,7 @@ import { hotelsFor } from "./lib/hotelsEngine.js";
 import { hm, usd, cpp, jrPassAnalysis, buildDays, JP_NAMES } from "./lib/trip.js";
 import { bestPath, fundingPaths, describePath } from "./lib/funding.js";
 import { buildLedger } from "./lib/costs.js";
-import { liveMode, geoSearch, liveFlightsProbe, liveAwardsProbe, liveHotels } from "./api/client.js";
+import { liveMode, geoSearch, liveFlights, liveAwardsProbe, liveHotels } from "./api/client.js";
 import { suggestCities } from "./lib/suggest.js";
 import { HOTEL_GROUPS, brandGroupOf } from "./lib/hotelBrands.js";
 import { bestAlternate } from "./lib/altGateways.js";
@@ -356,13 +356,15 @@ export default function App() {
   const setN = (cid, n) => setNights({ ...nights, [cid]: n });
 
   // One-tap proof that the live APIs answer, run from the user's browser
-  // against the configured worker (TPA→LHR, ~1 month out).
+  // against the configured worker (TPA→LHR, ~1 month out). The flight
+  // check is a real deep Business lookup so it also proves the Google
+  // Flights (SerpAPI) layer — costs one metered search, cached 30 min.
   const [diag, setDiag] = useState(null);
   const runDiag = async () => {
     setDiag({ running: true });
     const date = addDays(toISO(new Date()), 30);
     const [fl, aw, ho] = await Promise.all([
-      liveFlightsProbe("TPA", "LHR", date, "Economy"),
+      liveFlights("TPA", "LHR", date, "Business"),
       liveAwardsProbe("TPA", "LHR", date),
       liveHotels({ name: "London", cc: "LON", air: "LHR", lat: 51.5, lon: -0.12 }, date, addDays(date, 2)),
     ]);
@@ -371,7 +373,13 @@ export default function App() {
       : Array.isArray(r) && r.length === 0 ? { ok: true, note: "reachable — empty result for the test route" }
       : Array.isArray(r) ? { ok: true, note: `OK — ${r.length} result${r.length !== 1 ? "s" : ""}` }
       : { ok: false, note: "unexpected response" };
-    setDiag({ flights: verdict(fl), awards: verdict(aw), hotels: verdict(ho), date });
+    const flV = verdict(fl);
+    if (Array.isArray(fl) && fl.some((o) => o.gfLive)) {
+      flV.note = `Google Flights LIVE — ${fl.length} Business fare${fl.length !== 1 ? "s" : ""}, premium cash pricing flowing`;
+    } else if (flV.ok && Array.isArray(fl) && fl.length) {
+      flV.note += " (cached feed — no SERPAPI_KEY answer yet)";
+    }
+    setDiag({ flights: flV, awards: verdict(aw), hotels: verdict(ho), date });
   };
 
   // The Meridian intake hands us a plotted trip; register its places (any
