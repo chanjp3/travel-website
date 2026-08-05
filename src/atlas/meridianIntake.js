@@ -556,7 +556,7 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
       f.twoBookings?'2 bookings':null,
       f.selfTransfer?'self-transfer':null,
       f.testData?'test data':null,
-      (!f.points&&!f.testData&&f.live)?(f.bookable?'bookable':'live'):null,
+      (!f.points&&!f.testData&&f.live)?(f.gfLive?'Google Flights':f.bookable?'bookable':'live'):null,
       f.roundTrip?'½ round-trip':null,
     ].filter(Boolean).map(t=>`<span class="f-tag">${escH(t)}</span>`).join('');
     // routing graphic: real segments when we have them, the airport chain
@@ -590,7 +590,9 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
       const awMain=leg.options.filter(f=>f.points&&f.cabin===trip.cabin);
       const awOther=leg.options.filter(f=>f.points&&f.cabin!==trip.cabin);
       const cash=leg.options.filter(f=>!f.points);
-      const cashIsCabin=trip.cabin==='Economy';
+      // Live Google Flights rows arrive in the chosen cabin; only the free
+      // cached feed is economy-bound.
+      const cashIsCabin=trip.cabin==='Economy'||cash.some(f=>f.cabin===trip.cabin);
       const disp=[...cash,...awMain,...awOther];
       const near=(leg.nearbyAwards??[]).map(n=>`${n.date} · ${(n.miles/1000).toFixed(0)}K ${SOURCES[n.programId]?.short??''} ${n.cabin}`).join(' · ');
       const list=(rows,off)=>rows.map((f,i)=>rowHTML(f,off+i)).join('');

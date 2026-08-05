@@ -154,6 +154,73 @@ async function tpFlights(env, q, ret = null) {
   });
 }
 
+/* ── SerpAPI: live Google Flights results ───────────────────────────────
+ * When SERPAPI_KEY is set, main-leg lookups return the same flights,
+ * times and prices Google Flights shows — every cabin, including the
+ * premium cash fares the free cache lacks. Quota discipline (the free
+ * tier is ~100–250 searches/month): results are edge-cached 30 minutes,
+ * and only deep lookups (q.deep) spend a search — advisor probes never
+ * do. Fails soft to the cached-fare path on any error. */
+const SERP_CLASS = { ECONOMY: 1, PREMIUM_ECONOMY: 2, BUSINESS: 3, FIRST: 4 };
+async function serpFlights(env, q) {
+  // cache key deliberately excludes the API key
+  const cacheKey = "https://serpapi.local/gf?" + new URLSearchParams({
+    o: q.from, d: q.to, t: q.date, r: q.ret ?? "", c: q.cabin ?? "",
+  });
+  const cache = globalThis.caches?.default;
+  if (cache) {
+    const hit = await cache.match(cacheKey);
+    if (hit) return hit.json();
+  }
+  const u = new URL("https://serpapi.com/search.json");
+  u.searchParams.set("engine", "google_flights");
+  u.searchParams.set("departure_id", q.from);
+  u.searchParams.set("arrival_id", q.to);
+  u.searchParams.set("outbound_date", q.date);
+  if (q.ret) { u.searchParams.set("type", "1"); u.searchParams.set("return_date", q.ret); }
+  else u.searchParams.set("type", "2");
+  u.searchParams.set("travel_class", String(SERP_CLASS[q.cabin] ?? 1));
+  u.searchParams.set("currency", "USD");
+  u.searchParams.set("hl", "en");
+  u.searchParams.set("api_key", env.SERPAPI_KEY);
+  const res = await fetch(u);
+  if (!res.ok) throw new Error(`SerpAPI failed: ${res.status}`);
+  const j = await res.json();
+  const toISO = (s) => (s ? s.replace(" ", "T") + ":00" : null);
+  const offers = [...(j.best_flights ?? []), ...(j.other_flights ?? [])]
+    .filter((o) => +o.price > 0 && o.flights?.length)
+    .map((o) => ({
+      price: +o.price,
+      carrier: o.flights[0].airline,
+      cabin: SERP_CLASS[q.cabin] ? q.cabin : "ECONOMY",
+      transfers: o.flights.length - 1,
+      durMin: o.total_duration ?? null,
+      gfLive: true, // real Google Flights price for the chosen cabin
+      ...(q.ret ? { roundTrip: true } : {}),
+      itineraries: [{
+        duration: o.total_duration != null ? isoDur(o.total_duration) : null,
+        segments: o.flights.map((s) => {
+          // "VS 130" → carrier VS, num 130 (keeps flight numbers clean)
+          const m = /^([A-Z0-9]{2,3})\s*(\d+[A-Z]?)$/.exec((s.flight_number ?? "").trim());
+          return {
+            from: s.departure_airport?.id, to: s.arrival_airport?.id,
+            dep: toISO(s.departure_airport?.time), arr: toISO(s.arrival_airport?.time),
+            carrier: m ? m[1] : (s.airline ?? ""), num: m ? m[2] : (s.flight_number ?? ""),
+          };
+        }),
+      }],
+    }))
+    .sort((a, b) => a.price - b.price)
+    .slice(0, 10);
+  // Empty results are cached too — that's the quota protection.
+  if (cache) {
+    await cache.put(cacheKey, new Response(JSON.stringify(offers), {
+      headers: { "Cache-Control": "public, max-age=1800", "Content-Type": "application/json" },
+    }));
+  }
+  return offers;
+}
+
 /* ── Duffel: real bookable itineraries ──────────────────────────────────
  * When DUFFEL_KEY is set, flight search returns actual offers — real
  * flights, times, and connections — instead of cached market fares.
@@ -529,11 +596,16 @@ export default {
         })) ?? []);
       }
       if (url.pathname === "/api/flights") {
-        // Real bookable offers first, when Duffel is configured with a LIVE
+        // Live Google Flights results first (SerpAPI) — deep lookups only,
+        // so speculative advisor probes never spend free-tier quota. Then
+        // real bookable offers, when Duffel is configured with a LIVE
         // token. Sandbox tokens are ignored — simulated flights must never
         // shadow the real cached market fares below.
         let real = [];
-        if (env.DUFFEL_KEY && !env.DUFFEL_KEY.startsWith("duffel_test")) {
+        if (env.SERPAPI_KEY && q.deep) {
+          try { real = await serpFlights(env, q); } catch { /* fall through */ }
+        }
+        if (!real.length && env.DUFFEL_KEY && !env.DUFFEL_KEY.startsWith("duffel_test")) {
           try { real = await duffelFlights(env, q); } catch { /* cached-fare path below */ }
         }
         if (real.length) {

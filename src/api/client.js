@@ -112,7 +112,8 @@ export const liveFlights = (from, to, date, cabin, ret = null, viaHub = null) =>
     cabin: cabinCode(cabin),
     via: viaHub ?? (connectionHubs(from, to).join(",") || null),
     force: viaHub ? 1 : null,
-  });
+    deep: 1, // a real leg lookup — worth spending metered live-search quota
+  }, 25000);
 
 /** Cheap probe variant — no hub-building, one provider call. Used by the
  *  alternate-airport advisor and the connection check, which fire many
