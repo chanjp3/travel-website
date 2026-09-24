@@ -14,7 +14,7 @@ import { hotelsFor } from "./lib/hotelsEngine.js";
 import { hm, usd, cpp, jrPassAnalysis, buildDays, JP_NAMES } from "./lib/trip.js";
 import { bestPath, fundingPaths, describePath } from "./lib/funding.js";
 import { buildLedger } from "./lib/costs.js";
-import { liveMode, geoSearch, liveFlights, liveAwardsProbe, liveHotels } from "./api/client.js";
+import { liveMode, liveLimit, geoSearch, liveFlights, liveAwardsProbe, liveHotels } from "./api/client.js";
 import { suggestCities } from "./lib/suggest.js";
 import { HOTEL_GROUPS, brandGroupOf } from "./lib/hotelBrands.js";
 import { bestAlternate } from "./lib/altGateways.js";
@@ -608,6 +608,21 @@ export default function App() {
                 </div>
               )}
             </div>
+
+            {liveMode() && (liveLimit("flights") || liveLimit("awards")) && (
+              <div className="rounded-xl px-4 py-3 text-xs" style={{ background: T.flightTint, border: `1px solid ${T.flight}44`, color: T.ink }}>
+                {liveLimit("flights") === "signin" || liveLimit("awards") === "signin" ? (
+                  <>
+                    <b>Showing cached fares.</b> Sign in for live Google Flights prices in every cabin and live award space.{" "}
+                    <button onClick={() => setTripsOpen(true)} className="font-bold underline" style={{ color: T.flight }}>Sign in →</button>
+                  </>
+                ) : liveLimit("flights") === "user-cap" ? (
+                  <><b>You've used today's live Google Flights searches</b> — showing cached fares until midnight UTC. Searches you've already run stay live for 30 minutes.</>
+                ) : (
+                  <><b>Live Google Flights searches are at today's site-wide limit</b> — showing cached fares until midnight UTC.</>
+                )}
+              </div>
+            )}
 
             {/* Long-haul flights with funding paths */}
             <div className="grid md:grid-cols-2 gap-5">

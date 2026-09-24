@@ -19,6 +19,13 @@ compatibility_date = "2026-01-01"
 #   wrangler secret put AMADEUS_SECRET       #   (self-service was decommissioned 2026-07-17)
 [vars]
 AMADEUS_BASE = "https://test.api.amadeus.com"
+# Public-launch metering: live Google Flights searches run only for signed-in
+# accounts. Caps count real provider calls (cache hits are free); tune them
+# to your SerpAPI plan. Add OWNER_EMAILS (comma list, exempt from caps) as a
+# dashboard *secret*, not here: addresses stay out of the repo, and secrets
+# survive deploys (plain dashboard variables get replaced by this file).
+SERP_USER_DAILY_CAP = "5"
+SERP_DAILY_CAP = "8"
 
 # Trip sync storage (save codes), 90-day TTL.
 [[kv_namespaces]]

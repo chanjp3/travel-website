@@ -11,7 +11,7 @@ import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
-import { geoSearch, liveHotelsDetailed, liveMode, searchPOI, liveFlights, liveAwards } from "../api/client.js";
+import { geoSearch, liveHotelsDetailed, liveMode, liveLimit, searchPOI, liveFlights, liveAwards } from "../api/client.js";
 import { mergeLiveLeg, mergeLiveAwards } from "../lib/liveMerge.js";
 import { flightPathHTML, chainPathHTML } from "../lib/flightPath.js";
 import { seatsSearchLink } from "../lib/bookLinks.js";
@@ -608,12 +608,17 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
           <button type="button" class="flre">↻ re-check</button> — fresh finds land straight back here.</div>`:''}
         ${awOther.length?`<label class="minihead">Other cabins</label><div class="optlist" style="max-height:150px">${list(awOther,cash.length+awMain.length)}</div>`:''}
         ${near?`<div class="hint">Award space on nearby dates: ${near}</div>`:''}`;
-      const body=disp.length?`
+      const lim=liveLimit('flights')||liveLimit('awards');
+      const limNote=!lim?'':`<div class="hint" style="color:var(--route)">${
+        lim==='signin'?'<b>Showing cached fares.</b> Sign in (Trips, top right) for live Google Flights prices in every cabin and live award space.'
+        :lim==='user-cap'?"<b>You've used today's live searches</b> — showing cached fares until midnight UTC."
+        :"<b>Live searches are at today's site-wide limit</b> — showing cached fares until midnight UTC."}</div>`;
+      const body=limNote+(disp.length?`
         ${cash.length?`<label class="minihead">${cashIsCabin?'Live fares — pay cash':'Cached economy fares — pay cash'}</label><div class="optlist" style="max-height:190px">${list(cash,0)}</div>`:''}
         ${!cash.length?`<div class="hint"><b style="color:var(--ink)">No cached cash fares for this date.</b> <a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">Check live prices on Google Flights ↗</a> — or pick from the points options below.</div>`:''}
         ${!cashIsCabin&&cash.length?`<div class="finenote">${escH(trip.cabin)} cash pricing isn't in the free fare cache — <a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">check ${escH(trip.cabin)} fares on Google Flights ↗</a></div>`:''}
         ${fold('awPts',`✦ ${nAw?`${nAw} points option${nAw!==1?'s':''} for this leg`:'Points options for this leg'}`,ptsInner,!cash.length)}`
-        :'<div class="hint">No live results for this route &amp; date yet — try another cabin, or pick "Decide later" and the flight desk keeps searching.</div>';
+        :'<div class="hint">No live results for this route &amp; date yet — try another cabin, or pick "Decide later" and the flight desk keeps searching.</div>');
       shell(body);
       qcard.querySelectorAll('.fold').forEach(b=>b.onclick=()=>{
         const bd=qcard.querySelector(`.fold-body[data-for="${b.id}"]`);
