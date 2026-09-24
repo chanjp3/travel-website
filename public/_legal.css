@@ -1,0 +1,14 @@
+:root{--paper:#04060B;--card:#0A0F1A;--ink:#EDF1F8;--soft:#9AA7BD;--hair:#1C2638;--route:#7FB0FF}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.7 Inter,"Helvetica Neue",Arial,sans-serif}
+main{max-width:720px;margin:0 auto;padding:48px 16px 80px}
+.kick{font:10px/1 "IBM Plex Mono",monospace;letter-spacing:.4em;text-transform:uppercase;color:var(--route)}
+h1{font:italic 400 40px/1.15 "Playfair Display",Didot,Georgia,serif;margin:14px 0 6px}
+h2{font:italic 400 22px/1.3 "Playfair Display",Didot,Georgia,serif;margin:36px 0 8px;border-top:1px solid var(--hair);padding-top:22px}
+p,li{color:#C9D3E3}
+.meta{color:var(--soft);font-size:13px}
+a{color:var(--route)}
+table{width:100%;border-collapse:collapse;font-size:14px;margin:8px 0}
+td,th{text-align:left;padding:8px 10px;border-bottom:1px solid var(--hair);vertical-align:top}
+th{color:var(--soft);font-weight:600}
+.back{display:inline-block;margin-bottom:28px;font:11px "IBM Plex Mono",monospace;letter-spacing:.2em;text-transform:uppercase;text-decoration:none}

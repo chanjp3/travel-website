@@ -589,13 +589,15 @@ async function liteHotels(env, q) {
  * are free. OWNER_EMAILS (comma list, set in the dashboard) are exempt
  * from the caps. Everyone else falls back to the free cached fares, and
  * the response says why via X-Meridian-Limit. */
+const isOwner = (env, u) => !!u && (env.OWNER_EMAILS ?? "").toLowerCase().split(",").map((x) => x.trim())
+  .filter(Boolean).includes((u.email ?? "").toLowerCase());
+
 async function meterSerp(env, u, ctx) {
   if (!authConfigured(env)) return true; // sign-in not set up — nothing to gate on
   if (!u) { ctx.limit = "signin"; return false; }
   const kv = env.MERIDIAN_TRIPS;
   if (!kv) return true;
-  const owner = (env.OWNER_EMAILS ?? "").toLowerCase().split(",").map((x) => x.trim())
-    .filter(Boolean).includes((u.email ?? "").toLowerCase());
+  const owner = isOwner(env, u);
   const day = new Date().toISOString().slice(0, 10);
   const gk = `meter:serp:${day}`, uk = `meter:serp:${day}:${u.sub}`;
   const [g, n] = (await Promise.all([kv.get(gk), kv.get(uk)])).map((v) => +v || 0);
@@ -755,6 +757,28 @@ async function handle(req, env, ctx) {
         const u = await userFrom(req, env);
         return u ? json({ email: u.email, name: u.name }) : json({ error: "signed out" }, 401);
       }
+      if (url.pathname === "/api/auth/delete" && req.method === "POST") {
+        // Delete everything tied to this account: its trip index and the
+        // trips it saved. (Usage counters expire on their own within 48h.)
+        if (!authConfigured(env)) return json({ error: "sign-in not configured" }, 501);
+        const u = await userFrom(req, env);
+        if (!u) return json({ error: "signed out" }, 401);
+        let removed = 0;
+        if (env.MERIDIAN_TRIPS) {
+          let cursor;
+          do {
+            const l = await env.MERIDIAN_TRIPS.list({ prefix: `user:${u.sub}:`, cursor });
+            for (const k of l.keys) {
+              const v = await env.MERIDIAN_TRIPS.get(k.name);
+              try { const code = JSON.parse(v ?? "{}").code; if (code) await env.MERIDIAN_TRIPS.delete(code); } catch { /* index only */ }
+              await env.MERIDIAN_TRIPS.delete(k.name);
+              removed++;
+            }
+            cursor = l.list_complete === false ? l.cursor : undefined;
+          } while (cursor);
+        }
+        return json({ deleted: removed });
+      }
       if (url.pathname === "/api/trips/mine") {
         if (!env.MERIDIAN_TRIPS) return json({ error: "trip storage not configured" }, 501);
         if (!authConfigured(env)) return json({ error: "sign-in not configured" }, 501);
@@ -800,10 +824,19 @@ async function handle(req, env, ctx) {
       }
       if (url.pathname === "/api/awards") {
         if (!env.SEATSAERO_KEY) return json({ error: "seats.aero not configured" }, 501);
-        // Award data is licensed per account holder — signed-in users only.
-        if (authConfigured(env) && !(await userFrom(req, env))) {
-          ctx.limit = "signin";
-          return json({ error: "sign in to see live award space" }, 401);
+        // Award data is licensed per account holder — signed-in users only,
+        // and owners only until AWARDS_PUBLIC is set (seats.aero's Pro terms
+        // are personal-use; public display needs their commercial agreement).
+        if (authConfigured(env)) {
+          const au = await userFrom(req, env);
+          if (!au) {
+            ctx.limit = "signin";
+            return json({ error: "sign in to see live award space" }, 401);
+          }
+          if (!env.AWARDS_PUBLIC && !isOwner(env, au)) {
+            ctx.limit = "awards-private";
+            return json({ error: "award availability is invite-only for now" }, 403);
+          }
         }
         const rows = await seatsSearch(env, q.from, q.to, q.date, Math.min(+q.flex || 0, 3));
         // Only the exact requested date counts as "the answer" — nearby-date
