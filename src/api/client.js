@@ -125,6 +125,20 @@ export async function saveTripCloud(data) {
 }
 export const loadTripCloud = (code) => getDetailed("/api/trips", { code });
 
+/** Freeze the current itinerary into a read-only snapshot; returns its id. */
+export async function shareItinerary(snapshot) {
+  if (!BASE) return { id: null, error: "not-configured" };
+  try {
+    const res = await fetch(new URL("/api/share", BASE), {
+      method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(snapshot), signal: AbortSignal.timeout(12000),
+    });
+    const j = await res.json().catch(() => ({}));
+    return res.ok ? { id: j.id, error: null } : { id: null, error: j?.error ?? `HTTP ${res.status}` };
+  } catch { return { id: null, error: "network error — worker unreachable" }; }
+}
+export const loadShare = (id) => getDetailed("/api/share", { id });
+
 export const searchLocations = (q) => get("/api/locations", { q });
 
 /** Flights for a route+date. `via` tells the worker which connection hubs

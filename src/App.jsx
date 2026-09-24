@@ -20,7 +20,8 @@ import { HOTEL_GROUPS, brandGroupOf } from "./lib/hotelBrands.js";
 import { bestAlternate } from "./lib/altGateways.js";
 import { serializeTrip, hydrateTrip, tripLocal } from "./lib/tripStore.js";
 import { bookLink, cashSearchLink, seatsSearchLink } from "./lib/bookLinks.js";
-import { saveTripCloud, loadTripCloud, captureAuthFromHash, authMe, authLoginUrl, authLogout, myTrips, deleteAccountData } from "./api/client.js";
+import { buildShareSnapshot } from "./lib/shareSnapshot.js";
+import { saveTripCloud, loadTripCloud, shareItinerary, captureAuthFromHash, authMe, authLoginUrl, authLogout, myTrips, deleteAccountData } from "./api/client.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
 import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels, liveHotelRow } from "./lib/liveMerge.js";
 import { flightPathHTML } from "./lib/flightPath.js";
@@ -280,12 +281,14 @@ export default function App() {
     });
   }, [route, hotelPicks, tourHotels, hotelPay, nights, balances, pointsOnly, liveHotelsMap, hotelPrefs]);
 
+  const outMode = pointsOnly || flightPay.out === "points" ? "points" : "cash";
+  const backMode = fBack?.rtIncluded ? "cash" : pointsOnly || flightPay.back === "points" ? "points" : "cash";
   const ledger = useMemo(() => {
     if (!route || !fOut || !fBack) return null;
     return buildLedger({
       flights: [
-        { label: `${depAir} → ${route.inGw.gw}`, f: fOut, mode: pointsOnly || flightPay.out === "points" ? "points" : "cash", path: pathOut },
-        { label: `${route.outGw.gw} → ${retAir}${fBack.rtIncluded ? " (included in the round-trip fare)" : ""}`, f: fBack, mode: fBack.rtIncluded ? "cash" : pointsOnly || flightPay.back === "points" ? "points" : "cash", path: pathBack },
+        { label: `${depAir} → ${route.inGw.gw}`, f: fOut, mode: outMode, path: pathOut },
+        { label: `${route.outGw.gw} → ${retAir}${fBack.rtIncluded ? " (included in the round-trip fare)" : ""}`, f: fBack, mode: backMode, path: pathBack },
       ],
       hotels: hotelChoices, route, jr,
     });
@@ -330,6 +333,33 @@ export default function App() {
     });
     return ops;
   }, [route, fOut, fBack, outLegD, backLegD, cabinPref, balances, hotelChoices, depAir, retAir]);
+
+  // Shareable itinerary: freeze the plan into a read-only snapshot link.
+  const [share, setShare] = useState({});
+  useEffect(() => setShare({}), [ledger]); // a changed plan needs a fresh link
+  const makeShare = async (print) => {
+    if (!ledger) return;
+    const win = print ? window.open("", "_blank") : null; // opened now so popup blockers allow it
+    setShare({ busy: true });
+    const snap = buildShareSnapshot({
+      originName: cityById[originId].name,
+      stops: route.order.map((cid) => ({ name: cityById[cid].name, nights: nights[cid] ?? 2, checkIn: schedule?.byCity[cid]?.checkIn, checkOut: schedule?.byCity[cid]?.checkOut })),
+      departDate, returnDate: schedule?.returnDate ?? null,
+      openJaw: route.inGw.gw !== route.outGw.gw, cabin: cabinPref,
+      flights: [
+        { dir: "Outbound", from: depAir, to: route.inGw.gw, date: departDate, f: fOut, mode: outMode, path: pathOut },
+        { dir: "Return", from: route.outGw.gw, to: retAir, date: schedule?.returnDate ?? null, f: fBack, mode: backMode, path: pathBack },
+      ],
+      hotels: hotelChoices.map((hc) => ({ cityName: cityById[hc.city].name, stay: schedule?.byCity[hc.city], hc })),
+      ledger,
+      days: days.map((d) => ({ ...d, date: schedule ? dateForDay(schedule, d.day) : null })),
+    });
+    const r = await shareItinerary(snap);
+    if (!r.id) { win?.close(); setShare({ err: r.error }); return; }
+    const url = `${location.origin}/share.html?id=${r.id}`;
+    setShare({ url, copied: false });
+    if (win) win.location = `${url}&print=1`;
+  };
 
   const totalNights = destIds.reduce((s, c) => s + (nights[c] ?? 2), 0);
   const japanSuggestions = useMemo(() => {
@@ -958,6 +988,38 @@ export default function App() {
                   </div>
                 ))}
               </div>
+              {liveMode() && (
+                <div className="mt-4 pt-4 flex flex-wrap items-center gap-2" style={{ borderTop: "1px solid rgba(255,255,255,.12)" }}>
+                  <button
+                    onClick={() => makeShare(false)} disabled={share.busy}
+                    className="px-3.5 py-2 rounded-lg text-xs font-bold disabled:opacity-50"
+                    style={{ background: T.flight, color: "#04060B" }}
+                  >{share.busy ? "Creating link…" : "Share itinerary"}</button>
+                  <button
+                    onClick={() => makeShare(true)} disabled={share.busy}
+                    className="px-3.5 py-2 rounded-lg text-xs font-bold disabled:opacity-50"
+                    style={{ border: "1px solid rgba(255,255,255,.3)" }}
+                  >Print / save PDF</button>
+                  {share.url && (
+                    <span className="flex items-center gap-2 flex-wrap min-w-0">
+                      <input
+                        readOnly value={share.url} onFocus={(e) => e.target.select()}
+                        className="px-2.5 py-1.5 rounded-lg text-xs min-w-0"
+                        style={{ width: 300, maxWidth: "100%", background: "rgba(0,0,0,.35)", border: "1px solid rgba(255,255,255,.2)", color: "#fff", fontFamily: "'IBM Plex Mono', monospace" }}
+                      />
+                      <button
+                        onClick={async () => { try { await navigator.clipboard.writeText(share.url); setShare((x) => ({ ...x, copied: true })); } catch { /* select-and-copy still works */ } }}
+                        className="text-xs font-bold underline"
+                      >{share.copied ? "Copied" : "Copy"}</button>
+                      <a href={share.url} target="_blank" rel="noreferrer" className="text-xs font-bold underline">Open ↗</a>
+                    </span>
+                  )}
+                  {share.err && <span className="text-xs" style={{ color: "#FFB4B4" }}>Couldn't create a link — {share.err}</span>}
+                  {!share.url && !share.err && (
+                    <span className="text-xs opacity-60">A read-only link to this plan as priced now — no sign-in needed to view.</span>
+                  )}
+                </div>
+              )}
             </div>
 
             <div>

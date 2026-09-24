@@ -778,8 +778,45 @@ async function handle(req, env, ctx) {
             }
             cursor = l.list_complete === false ? l.cursor : undefined;
           } while (cursor);
+          cursor = undefined;
+          do {
+            const l = await env.MERIDIAN_TRIPS.list({ prefix: `ushare:${u.sub}:`, cursor });
+            for (const k of l.keys) {
+              try { const sid = JSON.parse((await env.MERIDIAN_TRIPS.get(k.name)) ?? "{}").id; if (sid) await env.MERIDIAN_TRIPS.delete(`share:${sid}`); } catch { /* index only */ }
+              await env.MERIDIAN_TRIPS.delete(k.name);
+              removed++;
+            }
+            cursor = l.list_complete === false ? l.cursor : undefined;
+          } while (cursor);
         }
         return json({ deleted: removed });
+      }
+      if (url.pathname === "/api/share") {
+        // Read-only itinerary snapshots: the planner freezes what they
+        // chose (prices as of that moment) and gets a link anyone can open.
+        // Viewing costs no live lookups. The page renders every field as
+        // escaped text, never as markup.
+        if (!env.MERIDIAN_TRIPS) return json({ error: "trip storage not configured" }, 501);
+        if (req.method === "POST") {
+          const body = await req.text();
+          if (body.length > 200_000) return json({ error: "itinerary too large to share" }, 413);
+          let snap;
+          try { snap = JSON.parse(body); } catch { return json({ error: "invalid itinerary" }, 400); }
+          if (snap?.v !== 1 || typeof snap.title !== "string") return json({ error: "invalid itinerary" }, 400);
+          const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
+          const buf = new Uint8Array(10);
+          crypto.getRandomValues(buf);
+          const id = [...buf].map((b) => alphabet[b % alphabet.length]).join("");
+          const ttl = { expirationTtl: 60 * 60 * 24 * 180 };
+          await env.MERIDIAN_TRIPS.put(`share:${id}`, JSON.stringify({ ...snap, sharedAt: new Date().toISOString() }), ttl);
+          const u = await userFrom(req, env);
+          if (u) await env.MERIDIAN_TRIPS.put(`ushare:${u.sub}:${Date.now()}-${crypto.randomUUID().slice(0, 8)}`, JSON.stringify({ id }), ttl);
+          return json({ id });
+        }
+        const id = (q.id ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        const saved = id && await env.MERIDIAN_TRIPS.get(`share:${id}`);
+        if (!saved) return json({ error: "this shared itinerary doesn't exist or has expired" }, 404);
+        return new Response(saved, { headers: CORS });
       }
       if (url.pathname === "/api/trips/mine") {
         if (!env.MERIDIAN_TRIPS) return json({ error: "trip storage not configured" }, 501);
@@ -814,7 +851,7 @@ async function handle(req, env, ctx) {
           if (u) {
             let label = "Trip";
             try { label = JSON.parse(body)?.label ?? label; } catch { /* keep default */ }
-            await env.MERIDIAN_TRIPS.put(`user:${u.sub}:${Date.now()}`,
+            await env.MERIDIAN_TRIPS.put(`user:${u.sub}:${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
               JSON.stringify({ code, label, savedAt: new Date().toISOString() }),
               { expirationTtl: 60 * 60 * 24 * 90 });
           }
