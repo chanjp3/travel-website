@@ -843,11 +843,11 @@ function stepCityTour(i){
       : state==='error' ? `<div class="hint" style="color:var(--route)">Live rates unavailable — ${errMsg}.</div>
           <button class="btn ghost sm" id="rt">Retry</button>`
       : state==='off' ? '<div class="hint">Connect the worker (VITE_API_BASE) for live hotel rates.</div>'
-      : filterRow+(hs.length?`<label class="minihead">Where you could stay — pan or zoom the map to search that area</label>
+      : filterRow+(all.some(h=>h.testRate)?'<div class="hint" style="color:var(--route)"><b>Test rates.</b> The hotel provider is in sandbox mode — these prices are simulated, not real.</div>':'')+(hs.length?`<label class="minihead">Where you could stay — pan or zoom the map to search that area</label>
         <div class="optlist" style="max-height:150px">${hs.slice(0,8).map((h,j)=>`
           <div class="opt${trip.hotelPicks[s.city]?.name===h.name?' sel':''}" data-h="${j}">
             <span class="iata">$${Math.round(h.price/Math.max(s.nights,1))}</span>
-            <span class="nm">${h.name}<div class="sub">${h.stars>0?`<span style="color:var(--gold)">${'★'.repeat(Math.min(h.stars,5))}</span>`:''}${h.rating!=null?` ${h.rating}/10`:''}${h.reviews?` · ${h.reviews.toLocaleString()} reviews`:''}</div></span>
+            <span class="nm">${h.name}<div class="sub">${h.stars>0?`<span style="color:var(--gold)">${'★'.repeat(Math.min(h.stars,5))}</span>`:''}${h.rating!=null?` ${h.rating}/10`:''}${h.reviews?` · ${h.reviews.toLocaleString()} reviews`:''}${h.testRate?' · <span style="color:var(--route)">test rate</span>':''}</div></span>
           </div>`).join('')}</div>
         ${hidden>0?`<div class="hint">${hidden} more hidden by filters</div>`:''}`
         :`<div class="hint">${all.length?'Nothing matches these filters here — loosen one or move the map.':'No hotels in this area — pan or zoom the map to search elsewhere.'}</div>`);

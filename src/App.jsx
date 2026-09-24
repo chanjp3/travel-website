@@ -1016,7 +1016,9 @@ export default function App() {
                           </span>
                         )}
                         {live
-                          ? <Chip tint={T.pineTint} color={T.pine}>live rates</Chip>
+                          ? (merged.testRates
+                            ? <Chip tint={T.flightTint} color={T.flight}>test rates — not real prices</Chip>
+                            : <Chip tint={T.pineTint} color={T.pine}>live rates</Chip>)
                           : sample && <Chip tint={T.flightTint} color={T.flight}>sample listings</Chip>}
                         {pool.length > 0 && filteredOut > 0 && (
                           <Chip tint={T.mist} color={T.inkSoft}>{filteredOut} hidden by filters</Chip>
@@ -1045,7 +1047,9 @@ export default function App() {
                                 {starsOf(h) != null && <Chip tint={T.mist} color={T.gold}>{"★".repeat(starsOf(h))}</Chip>}
                                 {h.view != null && <Chip tint={T.railTint} color={T.rail}><Eye size={11} /> view {h.view}</Chip>}
                                 {h.quality != null && <Chip tint={T.mist} color={T.inkSoft}><Star size={11} /> {h.quality}</Chip>}
-                                {(h.live || h.liveCash) && <Chip tint={T.pineTint} color={T.pine}>LIVE</Chip>}
+                                {(h.live || h.liveCash) && (h.testRate
+                                  ? <Chip tint={T.flightTint} color={T.flight}>TEST RATE</Chip>
+                                  : <Chip tint={T.pineTint} color={T.pine}>LIVE</Chip>)}
                                 {h.pts
                                   ? <Chip tint={T.pineTint} color={T.pine}>{(h.pts / 1000).toFixed(0)}K {h.program}/nt</Chip>
                                   : <Chip tint={T.mist} color={T.inkSoft}>cash only</Chip>}
@@ -1085,7 +1089,7 @@ export default function App() {
                     {ledger.lines.filter((l) => l.group === g).map((l, i) => (
                       <div key={g + i} className="flex items-start justify-between gap-3 px-4 py-2.5" style={{ background: T.card, borderBottom: `1px solid ${T.mist}` }}>
                         <div>
-                          <div className="text-sm font-semibold">{l.label} {l.est && <span className="text-xs font-normal" style={{ color: T.flight }}>est.</span>}</div>
+                          <div className="text-sm font-semibold">{l.label} {l.est && <span className="text-xs font-normal" style={{ color: T.flight }}>est.</span>}{l.test && <span className="text-xs font-normal" style={{ color: T.flight }}> test rate</span>}</div>
                           {l.sub && <div className="text-xs" style={{ color: T.inkSoft }}>{l.sub}</div>}
                         </div>
                         <div className="text-sm font-bold whitespace-nowrap" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{l.value}</div>
@@ -1123,6 +1127,7 @@ export default function App() {
                               : `${((op.hotel.pts * op.nights) / 1000).toFixed(0)}K ${op.hotel.program} · ${describePath(op.path, op.hotel.pid)}`}
                             {op.cpp != null && op.cpp > 0 && ` · ${op.cpp.toFixed(1)}¢/pt`}
                             {op.breaksRT && " · replaces the round-trip fare — the return then books separately"}
+                            {op.kind === "hotel" && op.hotel.testRate && " · saving based on a test rate"}
                           </div>
                         </div>
                         <div className="flex items-center gap-3 shrink-0">

@@ -239,7 +239,8 @@ export function liveHotelRow(o, n, note) {
     name: titleCase(o.name),
     program: brand?.program ?? "cash", pid: brand?.pid ?? null,
     pts, cash: nightly, view: null, quality: o.rating ?? null, stars: o.stars ?? null, reviews: o.reviews ?? null, live: true,
-    note: note ?? (brand
+    testRate: !!o.testRate,
+    note: o.testRate ? "Test rate from a sandbox hotel key — not a real price" : note ?? (brand
       ? `Live rate · award estimate at typical ${brand.program} value`
       : "Live rate for your dates"),
   };
@@ -256,7 +257,7 @@ export function mergeLiveHotels(base, offers, nights) {
   const hotels = base.hotels.map((h) => {
     const brand = brandFor(h.name);
     const match = brand && priced.find((o) => brandFor(o.name)?.pid === brand.pid);
-    return match ? { ...h, cash: Math.round(match.price / n), liveCash: true } : h;
+    return match ? { ...h, cash: Math.round(match.price / n), liveCash: true, testRate: !!match.testRate } : h;
   });
 
   // Append the cheapest live properties as bookable options; points brands
@@ -270,5 +271,5 @@ export function mergeLiveHotels(base, offers, nights) {
     .slice(0, base.hotels.length <= 2 ? 3 : 2)
     .map((o) => liveHotelRow(o, n));
 
-  return { hotels: [...hotels, ...extras], sample: false, live: true };
+  return { hotels: [...hotels, ...extras], sample: false, live: true, testRates: priced.some((o) => o.testRate) };
 }
