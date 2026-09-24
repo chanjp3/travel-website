@@ -11,7 +11,7 @@ import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
-import { geoSearch, liveHotelsDetailed, liveMode, liveLimit, searchPOI, liveFlights, liveAwards } from "../api/client.js";
+import { geoSearch, liveHotelsDetailed, liveMode, limitNotes, searchPOI, liveFlights, liveAwards } from "../api/client.js";
 import { mergeLiveLeg, mergeLiveAwards } from "../lib/liveMerge.js";
 import { flightPathHTML, chainPathHTML } from "../lib/flightPath.js";
 import { seatsSearchLink } from "../lib/bookLinks.js";
@@ -35,6 +35,7 @@ const SCAFFOLD = `
     <h1>Meridian<span>Chart your journey across the night atlas</span></h1>
     <div class="rule"></div>
     <button class="btn red" id="beginBtn">Begin plotting &nbsp;→</button>
+    <div class="legal"><a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a></div>
   </div>
 </div>
 <div id="qcard"></div>
@@ -608,11 +609,10 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
           <button type="button" class="flre">↻ re-check</button> — fresh finds land straight back here.</div>`:''}
         ${awOther.length?`<label class="minihead">Other cabins</label><div class="optlist" style="max-height:150px">${list(awOther,cash.length+awMain.length)}</div>`:''}
         ${near?`<div class="hint">Award space on nearby dates: ${near}</div>`:''}`;
-      const lim=liveLimit('flights')||liveLimit('awards');
+      const lim=limitNotes();
       const limNote=!lim?'':`<div class="hint" style="color:var(--route)">${
-        lim==='signin'?'<b>Showing cached fares.</b> Sign in (Trips, top right) for live Google Flights prices in every cabin and live award space.'
-        :lim==='user-cap'?"<b>You've used today's live searches</b> — showing cached fares until midnight UTC."
-        :"<b>Live searches are at today's site-wide limit</b> — showing cached fares until midnight UTC."}</div>`;
+        lim.signin?'<b>Showing cached fares.</b> Sign in (Trips, top right) for live Google Flights prices in every cabin.'
+        :lim.lines.map(escH).join('<br>')}</div>`;
       const body=limNote+(disp.length?`
         ${cash.length?`<label class="minihead">${cashIsCabin?'Live fares — pay cash':'Cached economy fares — pay cash'}</label><div class="optlist" style="max-height:190px">${list(cash,0)}</div>`:''}
         ${!cash.length?`<div class="hint"><b style="color:var(--ink)">No cached cash fares for this date.</b> <a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">Check live prices on Google Flights ↗</a> — or pick from the points options below.</div>`:''}

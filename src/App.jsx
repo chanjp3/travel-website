@@ -14,13 +14,13 @@ import { hotelsFor } from "./lib/hotelsEngine.js";
 import { hm, usd, cpp, jrPassAnalysis, buildDays, JP_NAMES } from "./lib/trip.js";
 import { bestPath, fundingPaths, describePath } from "./lib/funding.js";
 import { buildLedger } from "./lib/costs.js";
-import { liveMode, liveLimit, geoSearch, liveFlights, liveAwardsProbe, liveHotels } from "./api/client.js";
+import { liveMode, limitNotes, geoSearch, liveFlights, liveAwardsProbe, liveHotels } from "./api/client.js";
 import { suggestCities } from "./lib/suggest.js";
 import { HOTEL_GROUPS, brandGroupOf } from "./lib/hotelBrands.js";
 import { bestAlternate } from "./lib/altGateways.js";
 import { serializeTrip, hydrateTrip, tripLocal } from "./lib/tripStore.js";
 import { bookLink, cashSearchLink, seatsSearchLink } from "./lib/bookLinks.js";
-import { saveTripCloud, loadTripCloud, captureAuthFromHash, authMe, authLoginUrl, authLogout, myTrips } from "./api/client.js";
+import { saveTripCloud, loadTripCloud, captureAuthFromHash, authMe, authLoginUrl, authLogout, myTrips, deleteAccountData } from "./api/client.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
 import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels, liveHotelRow } from "./lib/liveMerge.js";
 import { flightPathHTML } from "./lib/flightPath.js";
@@ -609,18 +609,14 @@ export default function App() {
               )}
             </div>
 
-            {liveMode() && (liveLimit("flights") || liveLimit("awards")) && (
-              <div className="rounded-xl px-4 py-3 text-xs" style={{ background: T.flightTint, border: `1px solid ${T.flight}44`, color: T.ink }}>
-                {liveLimit("flights") === "signin" || liveLimit("awards") === "signin" ? (
-                  <>
-                    <b>Showing cached fares.</b> Sign in for live Google Flights prices in every cabin and live award space.{" "}
+            {liveMode() && limitNotes() && (
+              <div className="rounded-xl px-4 py-3 text-xs space-y-1" style={{ background: T.flightTint, border: `1px solid ${T.flight}44`, color: T.ink }}>
+                {limitNotes().signin ? (
+                  <p>
+                    <b>Showing cached fares.</b> Sign in for live Google Flights prices in every cabin.{" "}
                     <button onClick={() => setTripsOpen(true)} className="font-bold underline" style={{ color: T.flight }}>Sign in →</button>
-                  </>
-                ) : liveLimit("flights") === "user-cap" ? (
-                  <><b>You've used today's live Google Flights searches</b> — showing cached fares until midnight UTC. Searches you've already run stay live for 30 minutes.</>
-                ) : (
-                  <><b>Live Google Flights searches are at today's site-wide limit</b> — showing cached fares until midnight UTC.</>
-                )}
+                  </p>
+                ) : limitNotes().lines.map((l) => <p key={l}>{l}</p>)}
               </div>
             )}
 
@@ -1226,6 +1222,10 @@ export default function App() {
             Fares and hotel rates refresh live for your dates; award space is verified where marked.
             Always confirm availability before transferring points — transfers are one-way.
           </p>
+          <nav className="flex gap-4 text-xs" style={{ color: T.inkSoft }}>
+            <a href="/terms.html" className="underline">Terms</a>
+            <a href="/privacy.html" className="underline">Privacy</a>
+          </nav>
         </div>
       </footer>
       )}
@@ -1305,6 +1305,18 @@ export default function App() {
                       >Load</button>
                     </div>
                   ))}
+                  <div className="flex items-center justify-between gap-2 pt-1 text-xs" style={{ color: T.inkSoft }}>
+                    <a href="/privacy.html" target="_blank" rel="noreferrer" className="underline">Privacy</a>
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm("Delete your saved cloud trips and sign out? This can't be undone. Trips saved on this device stay.")) return;
+                        const r = await deleteAccountData();
+                        if (!r.ok) { window.alert("Couldn't delete right now — please try again."); return; }
+                        authLogout(); setAuth({ status: 401 }); setAcctTrips([]);
+                      }}
+                      className="underline"
+                    >Delete my account data</button>
+                  </div>
                 </>
               ) : auth.status === 401 ? (
                 <>
@@ -1313,6 +1325,10 @@ export default function App() {
                     href={authLoginUrl() ?? "#"}
                     className="block w-full py-2.5 rounded-xl text-sm font-bold text-center text-white" style={{ background: T.deep }}
                   >Sign in with Google</a>
+                  <p className="text-xs" style={{ color: T.inkSoft }}>
+                    By signing in you agree to the <a href="/terms.html" target="_blank" rel="noreferrer" className="underline">Terms</a> and{" "}
+                    <a href="/privacy.html" target="_blank" rel="noreferrer" className="underline">Privacy Policy</a>.
+                  </p>
                 </>
               ) : (
                 <p className="text-xs" style={{ color: T.inkSoft }}>

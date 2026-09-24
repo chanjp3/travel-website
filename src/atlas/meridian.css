@@ -229,6 +229,8 @@
 #intro{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;
   background:rgba(4,6,11,.94);transition:opacity .8s;backdrop-filter:blur(4px)}
 #intro.hide{opacity:0;pointer-events:none}
+#intro .legal{margin-top:28px;font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-faint)}
+#intro .legal a{color:inherit;text-decoration:none;border-bottom:1px solid var(--hair)}
 #intro .inner{text-align:center;max-width:560px;padding:0 24px}
 #intro .kick{font-family:var(--mono);font-size:10px;letter-spacing:.45em;text-indent:.45em;text-transform:uppercase;color:var(--route-deep);margin-bottom:18px}
 #intro h1{font-family:var(--disp);font-weight:200;font-size:clamp(30px,5vw,52px);letter-spacing:.5em;text-indent:.5em;text-transform:uppercase;line-height:1.15}

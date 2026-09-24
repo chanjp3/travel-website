@@ -81,6 +81,26 @@ export async function authMe() {
     return { status: res.status };
   } catch { return { status: 0 }; }
 }
+/** Remove this account's saved trips and trip index from the cloud. */
+export async function deleteAccountData() {
+  if (!BASE || !authToken()) return { ok: false };
+  try {
+    const res = await fetch(new URL("/api/auth/delete", BASE), { method: "POST", headers: authHeaders(), signal: AbortSignal.timeout(15000) });
+    return res.ok ? { ok: true, ...(await res.json()) } : { ok: false };
+  } catch { return { ok: false }; }
+}
+
+/** Plain-language reasons the worker held back live data (null = none). */
+export function limitNotes() {
+  const f = limits.flights, a = limits.awards;
+  if (f === "signin" || a === "signin") return { signin: true, lines: [] };
+  const lines = [];
+  if (f === "user-cap") lines.push("You've used today's live Google Flights searches — showing cached fares until midnight UTC. Searches you've already run stay live for 30 minutes.");
+  if (f === "global-cap") lines.push("Live Google Flights searches are at today's site-wide limit — showing cached fares until midnight UTC.");
+  if (a === "awards-private") lines.push("Live award availability is invite-only for now — points estimates use published award charts.");
+  return lines.length ? { signin: false, lines } : null;
+}
+
 export async function myTrips() {
   if (!BASE || !authToken()) return [];
   try {
