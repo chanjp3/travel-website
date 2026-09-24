@@ -51,10 +51,11 @@ export function buildLedger({ flights, hotels, route, jr }) {
         group: "Hotels", label: `${hotel.name} · ${nights} nt`,
         value: `${(path.srcPts / 1000).toFixed(0)}K ${SOURCES[path.source].short}`,
         sub: path.type === "transfer" ? `→ ${SOURCES[hotel.pid].short} (${((hotel.pts * nights) / 1000).toFixed(0)}K)` : null,
+        test: !!hotel.testRate,
       });
     } else {
       cash += (hotel.cash ?? 0) * nights;
-      lines.push({ group: "Hotels", label: `${hotel.name} · ${nights} nt`, value: `$${((hotel.cash ?? 0) * nights).toLocaleString()} cash` });
+      lines.push({ group: "Hotels", label: `${hotel.name} · ${nights} nt`, value: `$${((hotel.cash ?? 0) * nights).toLocaleString()} cash`, test: !!hotel.testRate });
     }
   });
 

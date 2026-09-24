@@ -576,6 +576,8 @@ async function liteHotels(env, q) {
         rating: h.rating ?? null,               // guest review score (0–10)
         reviews: h.reviewCount ?? h.reviews ?? null,
         lat: h.latitude ?? null, lon: h.longitude ?? null,
+        // sandbox keys ("sand_…") return simulated rates — never real prices
+        ...(env.LITEAPI_KEY.startsWith("sand_") ? { testRate: true } : {}),
       });
     }
   }
