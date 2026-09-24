@@ -8,12 +8,23 @@ import { connectionHubs } from "../lib/hubs.js";
 const BASE = import.meta.env.VITE_API_BASE ?? "";
 export const liveMode = () => !!BASE;
 
+/** Why the worker last held back a paid lookup, per API ("signin",
+ *  "user-cap", "global-cap") — null when the last call ran in full. */
+const limits = {};
+export const liveLimit = (kind) => limits[kind] ?? null;
+const noteLimit = (path, res, params) => {
+  // only the trip's real leg lookups count — advisor probes never spend
+  // metered quota, so they'd just wipe the answer
+  if (params.deep || params.detail) limits[path.split("/")[2]] = res.headers.get("X-Meridian-Limit");
+};
+
 async function get(path, params, timeoutMs = 12000) {
   if (!BASE) return null;
   const url = new URL(BASE + path);
   Object.entries(params).forEach(([k, v]) => v != null && url.searchParams.set(k, v));
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetch(url, { headers: authHeaders(), signal: AbortSignal.timeout(timeoutMs) });
+    noteLimit(path, res, params);
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
@@ -25,7 +36,8 @@ async function getDetailed(path, params, timeoutMs = 12000) {
   const url = new URL(BASE + path);
   Object.entries(params).forEach(([k, v]) => v != null && url.searchParams.set(k, v));
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetch(url, { headers: authHeaders(), signal: AbortSignal.timeout(timeoutMs) });
+    noteLimit(path, res, params);
     if (!res.ok) {
       let msg = `HTTP ${res.status}`;
       try {

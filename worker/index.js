@@ -86,6 +86,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Expose-Headers": "X-Meridian-Limit",
   "Content-Type": "application/json",
 };
 const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: CORS });
@@ -162,7 +163,7 @@ async function tpFlights(env, q, ret = null) {
  * and only deep lookups (q.deep) spend a search — advisor probes never
  * do. Fails soft to the cached-fare path on any error. */
 const SERP_CLASS = { ECONOMY: 1, PREMIUM_ECONOMY: 2, BUSINESS: 3, FIRST: 4 };
-async function serpFlights(env, q) {
+async function serpFlights(env, q, gate = async () => true) {
   // cache key deliberately excludes the API key
   const cacheKey = "https://serpapi.local/gf?" + new URLSearchParams({
     o: q.from, d: q.to, t: q.date, r: q.ret ?? "", c: q.cabin ?? "",
@@ -172,6 +173,8 @@ async function serpFlights(env, q) {
     const hit = await cache.match(cacheKey);
     if (hit) return hit.json();
   }
+  // cache miss = a real metered search: ask the gate first
+  if (!(await gate())) return [];
   const u = new URL("https://serpapi.com/search.json");
   u.searchParams.set("engine", "google_flights");
   u.searchParams.set("departure_id", q.from);
@@ -579,8 +582,45 @@ async function liteHotels(env, q) {
   return out.sort((a, b) => a.price - b.price).slice(0, 12);
 }
 
+/* ── Metering: who may spend paid lookups ────────────────────────────────
+ * The site is public, so metered providers (SerpAPI's Google Flights
+ * searches) only run for signed-in accounts, under a per-account and a
+ * site-wide daily cap. Only real provider calls count — edge-cache hits
+ * are free. OWNER_EMAILS (comma list, set in the dashboard) are exempt
+ * from the caps. Everyone else falls back to the free cached fares, and
+ * the response says why via X-Meridian-Limit. */
+async function meterSerp(env, u, ctx) {
+  if (!authConfigured(env)) return true; // sign-in not set up — nothing to gate on
+  if (!u) { ctx.limit = "signin"; return false; }
+  const kv = env.MERIDIAN_TRIPS;
+  if (!kv) return true;
+  const owner = (env.OWNER_EMAILS ?? "").toLowerCase().split(",").map((x) => x.trim())
+    .filter(Boolean).includes((u.email ?? "").toLowerCase());
+  const day = new Date().toISOString().slice(0, 10);
+  const gk = `meter:serp:${day}`, uk = `meter:serp:${day}:${u.sub}`;
+  const [g, n] = (await Promise.all([kv.get(gk), kv.get(uk)])).map((v) => +v || 0);
+  if (!owner) {
+    if (n >= (+env.SERP_USER_DAILY_CAP || 5)) { ctx.limit = "user-cap"; return false; }
+    if (g >= (+env.SERP_DAILY_CAP || 8)) { ctx.limit = "global-cap"; return false; }
+  }
+  const ttl = { expirationTtl: 60 * 60 * 48 };
+  await Promise.all([kv.put(gk, String(g + 1), ttl), kv.put(uk, String(n + 1), ttl)]);
+  return true;
+}
+
 export default {
   async fetch(req, env) {
+    const ctx = {};
+    let res = await handle(req, env, ctx);
+    if (ctx.limit) {
+      res = new Response(res.body, res);
+      res.headers.set("X-Meridian-Limit", ctx.limit);
+    }
+    return res;
+  },
+};
+
+async function handle(req, env, ctx) {
     if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
     const url = new URL(req.url);
     const q = Object.fromEntries(url.searchParams);
@@ -603,7 +643,8 @@ export default {
         // shadow the real cached market fares below.
         let real = [];
         if (env.SERPAPI_KEY && q.deep) {
-          try { real = await serpFlights(env, q); } catch { /* fall through */ }
+          const u = await userFrom(req, env);
+          try { real = await serpFlights(env, q, () => meterSerp(env, u, ctx)); } catch { /* fall through */ }
         }
         if (!real.length && env.DUFFEL_KEY && !env.DUFFEL_KEY.startsWith("duffel_test")) {
           try { real = await duffelFlights(env, q); } catch { /* cached-fare path below */ }
@@ -759,6 +800,11 @@ export default {
       }
       if (url.pathname === "/api/awards") {
         if (!env.SEATSAERO_KEY) return json({ error: "seats.aero not configured" }, 501);
+        // Award data is licensed per account holder — signed-in users only.
+        if (authConfigured(env) && !(await userFrom(req, env))) {
+          ctx.limit = "signin";
+          return json({ error: "sign in to see live award space" }, 401);
+        }
         const rows = await seatsSearch(env, q.from, q.to, q.date, Math.min(+q.flex || 0, 3));
         // Only the exact requested date counts as "the answer" — nearby-date
         // rows ride along so the app can offer a date shift.
@@ -786,5 +832,4 @@ export default {
     } catch (e) {
       return json({ error: e.message }, 502);
     }
-  },
-};
+}
