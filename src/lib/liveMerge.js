@@ -94,7 +94,7 @@ export function mergeLiveLeg(leg, offers, cabin) {
 }
 
 /** Seats.aero source → our program id — every program Seats.aero tracks. */
-const SEATSAERO_SOURCES = {
+export const SEATSAERO_SOURCES = {
   virginatlantic: "virginAtlantic",
   flyingblue: "flyingBlue",
   aeroplan: "aeroplan",
@@ -115,7 +115,7 @@ const SEATSAERO_SOURCES = {
   azul: "azul",
   smiles: "smiles",
 };
-const CABIN_KEY = { Economy: "economy", "Premium Economy": "premium", Business: "business", First: "first" };
+export const CABIN_KEY = { Economy: "economy", "Premium Economy": "premium", Business: "business", First: "first" };
 const CABIN_LABEL = { economy: "Economy", premium: "Premium Economy", business: "Business", first: "First" };
 const AWARD_CABINS = Object.keys(CABIN_LABEL);
 const CABIN_RANK = { Economy: 0, "Premium Economy": 1, Business: 2, First: 3 };

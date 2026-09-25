@@ -139,6 +139,24 @@ export async function shareItinerary(snapshot) {
 }
 export const loadShare = (id) => getDetailed("/api/share", { id });
 
+/* ── Award watchlist (signed-in; re-checked daily by the worker) ──────── */
+async function watchCall(path, method = "GET", body = null) {
+  if (!BASE || !authToken()) return { data: null, error: "signin" };
+  try {
+    const res = await fetch(new URL(path, BASE), {
+      method, headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...authHeaders() },
+      body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000),
+    });
+    const j = await res.json().catch(() => ({}));
+    return res.ok ? { data: j, error: null } : { data: null, error: j?.error ?? `HTTP ${res.status}`, status: res.status };
+  } catch { return { data: null, error: "network error — worker unreachable" }; }
+}
+export const watchList = () => watchCall("/api/watch");
+export const watchAdd = (w) => watchCall("/api/watch", "POST", w);
+export const watchRemove = (id) => watchCall(`/api/watch?id=${encodeURIComponent(id)}`, "DELETE");
+export const watchCheck = (id) => watchCall(`/api/watch/check?id=${encodeURIComponent(id)}`, "POST");
+export const watchSeen = (id) => watchCall(`/api/watch/seen?id=${encodeURIComponent(id)}`, "POST");
+
 export const searchLocations = (q) => get("/api/locations", { q });
 
 /** Flights for a route+date. `via` tells the worker which connection hubs

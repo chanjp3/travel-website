@@ -84,7 +84,7 @@ async function amadeus(env, path, params) {
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Access-Control-Expose-Headers": "X-Meridian-Limit",
   "Content-Type": "application/json",
@@ -612,7 +612,70 @@ async function meterSerp(env, u, ctx) {
   return true;
 }
 
+/* ── Award watchlist ───────────────────────────────────────────────────
+ * A watch = route + date (±flex days) + cabin (+ optional miles cap).
+ * The daily cron re-checks every watch against the seats.aero cache
+ * (one search each) and flags options that weren't there last time as
+ * new — space opening up. Watches expire on their own after the date.
+ * Stored as watch:{sub}:{id}; newHits persist until acknowledged or the
+ * space disappears. */
+const WATCH_MAX = 10;
+const sigOf = (h) => `${h.date}|${h.source}|${h.miles}`;
+export async function checkWatch(env, w) {
+  const rows = await seatsSearch(env, w.from, w.to, w.date, w.flex);
+  const hits = rows
+    .map((r) => {
+      const b = r[w.cabin];
+      return b && b.miles && (!w.maxMiles || b.miles <= w.maxMiles)
+        ? { date: r.date, source: r.source, miles: b.miles, taxes: b.taxes, seats: b.seats, airlines: b.airlines, direct: b.direct }
+        : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.miles - b.miles || a.date.localeCompare(b.date));
+  const now = new Set(hits.map(sigOf));
+  const prev = new Set(w.seen ?? []);
+  // The first check is the baseline; after that, anything unseen is new.
+  const fresh = w.checkedAt ? hits.filter((h) => !prev.has(sigOf(h))) : [];
+  const freshSigs = new Set(fresh.map(sigOf));
+  const carried = (w.newHits ?? []).filter((n) => now.has(sigOf(n)) && !freshSigs.has(sigOf(n)));
+  return {
+    ...w, checkedAt: new Date().toISOString(), error: null,
+    total: hits.length, hits: hits.slice(0, 12),
+    newHits: [...fresh, ...carried].slice(0, 12),
+    seen: [...now].slice(0, 400),
+  };
+}
+const watchExpiry = (w) => Math.floor(Date.parse(shiftDate(w.date, (w.flex ?? 0) + 2) + "T00:00:00Z") / 1000);
+async function putWatch(env, sub, w) {
+  await env.MERIDIAN_TRIPS.put(`watch:${sub}:${w.id}`, JSON.stringify(w), { expiration: watchExpiry(w) });
+}
+const publicWatch = ({ seen, ...w }) => w;
+
+/** Cron: re-check every live watch, one cached search each. */
+export async function runWatches(env) {
+  if (!env.SEATSAERO_KEY || !env.MERIDIAN_TRIPS) return { checked: 0 };
+  const today = new Date().toISOString().slice(0, 10);
+  let cursor, checked = 0;
+  do {
+    const l = await env.MERIDIAN_TRIPS.list({ prefix: "watch:", cursor });
+    for (const k of l.keys) {
+      const w = JSON.parse((await env.MERIDIAN_TRIPS.get(k.name)) ?? "null");
+      if (!w) continue;
+      if (shiftDate(w.date, w.flex ?? 0) < today) { await env.MERIDIAN_TRIPS.delete(k.name); continue; }
+      const sub = k.name.split(":")[1];
+      try { await putWatch(env, sub, await checkWatch(env, w)); }
+      catch (e) { await putWatch(env, sub, { ...w, error: String(e.message ?? e).slice(0, 120) }); }
+      checked++;
+    }
+    cursor = l.list_complete === false ? l.cursor : undefined;
+  } while (cursor);
+  return { checked };
+}
+
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runWatches(env));
+  },
   async fetch(req, env) {
     const ctx = {};
     let res = await handle(req, env, ctx);
@@ -780,6 +843,12 @@ async function handle(req, env, ctx) {
           } while (cursor);
           cursor = undefined;
           do {
+            const l = await env.MERIDIAN_TRIPS.list({ prefix: `watch:${u.sub}:`, cursor });
+            for (const k of l.keys) { await env.MERIDIAN_TRIPS.delete(k.name); removed++; }
+            cursor = l.list_complete === false ? l.cursor : undefined;
+          } while (cursor);
+          cursor = undefined;
+          do {
             const l = await env.MERIDIAN_TRIPS.list({ prefix: `ushare:${u.sub}:`, cursor });
             for (const k of l.keys) {
               try { const sid = JSON.parse((await env.MERIDIAN_TRIPS.get(k.name)) ?? "{}").id; if (sid) await env.MERIDIAN_TRIPS.delete(`share:${sid}`); } catch { /* index only */ }
@@ -790,6 +859,69 @@ async function handle(req, env, ctx) {
           } while (cursor);
         }
         return json({ deleted: removed });
+      }
+      if (url.pathname.startsWith("/api/watch")) {
+        if (!env.SEATSAERO_KEY) return json({ error: "seats.aero not configured" }, 501);
+        if (!env.MERIDIAN_TRIPS) return json({ error: "trip storage not configured" }, 501);
+        if (!authConfigured(env)) return json({ error: "sign-in not configured" }, 501);
+        const u = await userFrom(req, env);
+        if (!u) { ctx.limit = "signin"; return json({ error: "sign in to use the watchlist" }, 401); }
+        if (!env.AWARDS_PUBLIC && !isOwner(env, u)) { ctx.limit = "awards-private"; return json({ error: "award watchlist is invite-only for now" }, 403); }
+        const prefix = `watch:${u.sub}:`;
+        const mine = async () => {
+          const l = await env.MERIDIAN_TRIPS.list({ prefix });
+          const out = [];
+          for (const k of l.keys) { const v = await env.MERIDIAN_TRIPS.get(k.name); if (v) out.push(JSON.parse(v)); }
+          return out.sort((a, b) => a.date.localeCompare(b.date));
+        };
+        const wid = (q.id ?? "").replace(/[^a-z0-9]/g, "");
+        const load = async () => JSON.parse((await env.MERIDIAN_TRIPS.get(prefix + wid)) ?? "null");
+        if (url.pathname === "/api/watch" && req.method === "GET") return json((await mine()).map(publicWatch));
+        if (url.pathname === "/api/watch" && req.method === "POST") {
+          let b;
+          try { b = JSON.parse(await req.text()); } catch { return json({ error: "invalid watch" }, 400); }
+          const from = String(b.from ?? "").toUpperCase(), to = String(b.to ?? "").toUpperCase();
+          const flex = Math.max(0, Math.min(3, Math.floor(+b.flex || 0)));
+          const today = new Date().toISOString().slice(0, 10);
+          if (!/^[A-Z]{3}$/.test(from) || !/^[A-Z]{3}$/.test(to) || from === to) return json({ error: "use 3-letter airport codes" }, 400);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(b.date ?? "") || shiftDate(b.date, flex) < today) return json({ error: "pick a future date" }, 400);
+          if (!AWARD_CABINS.includes(b.cabin)) return json({ error: "unknown cabin" }, 400);
+          const existing = await mine();
+          const dupe = existing.find((w) => w.from === from && w.to === to && w.date === b.date && w.cabin === b.cabin);
+          if (dupe) return json(publicWatch(dupe));
+          if (existing.length >= WATCH_MAX) return json({ error: `watchlist is full (${WATCH_MAX}) — remove one first` }, 409);
+          const buf = new Uint8Array(8);
+          crypto.getRandomValues(buf);
+          let w = {
+            id: [...buf].map((x) => "abcdefghjkmnpqrstuvwxyz23456789"[x % 31]).join(""),
+            from, to, date: b.date, flex, cabin: b.cabin,
+            maxMiles: +b.maxMiles > 0 ? Math.round(+b.maxMiles) : null,
+            createdAt: new Date().toISOString(),
+          };
+          try { w = await checkWatch(env, w); } catch (e) { w.error = String(e.message ?? e).slice(0, 120); }
+          await putWatch(env, u.sub, w);
+          return json(publicWatch(w));
+        }
+        if (url.pathname === "/api/watch" && req.method === "DELETE") {
+          await env.MERIDIAN_TRIPS.delete(prefix + wid);
+          return json({ ok: true });
+        }
+        if (url.pathname === "/api/watch/check" && req.method === "POST") {
+          const w = await load();
+          if (!w) return json({ error: "no such watch" }, 404);
+          let nw;
+          try { nw = await checkWatch(env, w); } catch (e) { nw = { ...w, error: String(e.message ?? e).slice(0, 120) }; }
+          await putWatch(env, u.sub, nw);
+          return json(publicWatch(nw));
+        }
+        if (url.pathname === "/api/watch/seen" && req.method === "POST") {
+          const w = await load();
+          if (!w) return json({ error: "no such watch" }, 404);
+          const nw = { ...w, newHits: [] };
+          await putWatch(env, u.sub, nw);
+          return json(publicWatch(nw));
+        }
+        return json({ error: "not found" }, 404);
       }
       if (url.pathname === "/api/share") {
         // Read-only itinerary snapshots: the planner freezes what they

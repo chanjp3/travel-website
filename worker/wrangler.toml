@@ -31,3 +31,8 @@ SERP_DAILY_CAP = "8"
 [[kv_namespaces]]
 binding = "MERIDIAN_TRIPS"
 id = "d9073e2438ef43acaa900bea7458e756"
+
+# Award watchlist: re-check every saved watch once a day (11:17 UTC ≈ 7am ET).
+# One cached seats.aero search per watch; watches expire after their date.
+[triggers]
+crons = ["17 11 * * *"]
