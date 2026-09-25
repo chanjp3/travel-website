@@ -21,9 +21,10 @@ import { bestAlternate } from "./lib/altGateways.js";
 import { serializeTrip, hydrateTrip, tripLocal } from "./lib/tripStore.js";
 import { bookLink, cashSearchLink, seatsSearchLink } from "./lib/bookLinks.js";
 import { buildShareSnapshot } from "./lib/shareSnapshot.js";
+import { watchList, watchAdd, watchRemove, watchCheck, watchSeen } from "./api/client.js";
 import { saveTripCloud, loadTripCloud, shareItinerary, captureAuthFromHash, authMe, authLoginUrl, authLogout, myTrips, deleteAccountData } from "./api/client.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
-import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels, liveHotelRow } from "./lib/liveMerge.js";
+import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels, liveHotelRow, CABIN_KEY, SEATSAERO_SOURCES } from "./lib/liveMerge.js";
 import { flightPathHTML } from "./lib/flightPath.js";
 import { AIRPORTS, airportByIata } from "./lib/airports.js";
 import { defaultDepart, buildSchedule, toISO, addDays, fmtDay, fmtShort, dateForDay } from "./lib/dates.js";
@@ -242,7 +243,35 @@ export default function App() {
   // has its OAuth secrets; the OAuth return lands here as #token=… in the URL.
   const [auth, setAuth] = useState({ status: null });
   const [acctTrips, setAcctTrips] = useState([]);
+  // Award watchlist — null until known; "private" when awards are invite-only.
+  const [watches, setWatches] = useState(null);
+  const [watchBusy, setWatchBusy] = useState({});
+  const [watchErr, setWatchErr] = useState(null);
+  const [wf, setWf] = useState({ from: "", to: "", date: "", flex: 2, cabin: "business", max: "" });
+  const refreshWatches = async () => {
+    const r = await watchList();
+    if (r.data) setWatches(r.data);
+    else if (r.status === 403) setWatches("private");
+  };
+  const upsertWatch = (w) => setWatches((ws) => (Array.isArray(ws) ? [...ws.filter((x) => x.id !== w.id), w].sort((a, b) => a.date.localeCompare(b.date)) : [w]));
+  const watchFor = (from, to, date) => (Array.isArray(watches) ? watches.find((w) => w.from === from && w.to === to && w.date === date && w.cabin === CABIN_KEY[cabinPref]) : null);
+  const addWatch = async (spec) => {
+    setWatchErr(null);
+    setWatchBusy((b) => ({ ...b, [spec.from + spec.to + spec.date]: true }));
+    const r = await watchAdd(spec);
+    setWatchBusy((b) => ({ ...b, [spec.from + spec.to + spec.date]: false }));
+    if (r.data) upsertWatch(r.data); else setWatchErr(r.error);
+    return r;
+  };
+  const newWatchCount = Array.isArray(watches) ? watches.filter((w) => w.newHits?.length).length : 0;
+  const progShort = (src) => SOURCES[SEATSAERO_SOURCES[src]]?.short ?? src;
+  const ago = (iso) => {
+    if (!iso) return "not checked yet";
+    const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+    return m < 1 ? "checked just now" : m < 60 ? `checked ${m}m ago` : m < 48 * 60 ? `checked ${Math.round(m / 60)}h ago` : `checked ${Math.round(m / 1440)}d ago`;
+  };
   useEffect(() => { captureAuthFromHash(); authMe().then(setAuth); }, []);
+  useEffect(() => { if (auth.status === 200) refreshWatches(); else setWatches(null); }, [auth.status, tripsOpen]);
   useEffect(() => {
     if (!tripsOpen || auth.status !== 200) return;
     let on = true;
@@ -484,6 +513,9 @@ export default function App() {
               style={{ border: `1px solid ${T.mist}`, color: T.ink, background: T.card }}
             >
               <MapPin size={13} style={{ color: T.flight }} /> Trips
+              {newWatchCount > 0 && (
+                <span title="New award space on your watchlist" className="ml-0.5 px-1.5 rounded-full text-[10px] font-bold" style={{ background: T.flight, color: "#04060B" }}>{newWatchCount}</span>
+              )}
             </button>
             <button
               onClick={() => setPrefsOpen(true)}
@@ -528,6 +560,9 @@ export default function App() {
             style={{ zIndex: 46, border: `1px solid ${T.mist}`, color: T.ink, background: "rgba(8,13,24,.92)", boxShadow: "0 2px 14px rgba(0,0,0,.5)" }}
           >
             <MapPin size={13} style={{ color: T.flight }} /> Trips
+              {newWatchCount > 0 && (
+                <span title="New award space on your watchlist" className="ml-0.5 px-1.5 rounded-full text-[10px] font-bold" style={{ background: T.flight, color: "#04060B" }}>{newWatchCount}</span>
+              )}
           </button>
         </>
       )}
@@ -710,6 +745,23 @@ export default function App() {
                           >
                             ↻ re-check
                           </button>
+                        )}
+                        {liveMode() && Array.isArray(watches) && lf && lt && ld && (
+                          watchFor(lf, lt, ld) ? (
+                            <button onClick={() => setTripsOpen(true)} className="text-xs font-bold" style={{ color: T.pine }} title="On your award watchlist — checked daily">
+                              ★ watching
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => addWatch({ from: lf, to: lt, date: ld, flex: 2, cabin: CABIN_KEY[cabinPref] })}
+                              disabled={!!watchBusy[lf + lt + ld]}
+                              className="text-xs font-bold disabled:opacity-50"
+                              style={{ color: T.flight, textDecoration: "underline" }}
+                              title={`Check ${cabinPref} award space on this route daily (±2 days) and flag new openings`}
+                            >
+                              {watchBusy[lf + lt + ld] ? "adding…" : "☆ watch award space"}
+                            </button>
+                          )
                         )}
                       </span>
                     </div>
@@ -1403,6 +1455,116 @@ export default function App() {
                 </p>
               )}
             </div>
+
+            {auth.status === 200 && watches != null && (
+              <div className="rounded-xl p-4 space-y-2" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-sm font-bold">Award watchlist</span>
+                  {Array.isArray(watches) && <span className="text-xs" style={{ color: T.inkSoft }}>{watches.length}/10 · checked daily</span>}
+                </div>
+                {watches === "private" ? (
+                  <p className="text-xs" style={{ color: T.inkSoft }}>The award watchlist is invite-only for now.</p>
+                ) : (
+                  <>
+                    {watches.length === 0 && (
+                      <p className="text-xs" style={{ color: T.inkSoft }}>
+                        Watch a route and Meridian re-checks its award space every morning, flagging seats that open up.
+                        Use <b>☆ watch award space</b> on any flight leg, or add one below.
+                      </p>
+                    )}
+                    {watches.map((w) => {
+                      const best = w.hits?.[0];
+                      const busy = watchBusy[w.id];
+                      const act = async (fn) => {
+                        setWatchBusy((b) => ({ ...b, [w.id]: true }));
+                        const r = await fn(w.id);
+                        setWatchBusy((b) => ({ ...b, [w.id]: false }));
+                        if (r.data?.id) upsertWatch(r.data);
+                        return r;
+                      };
+                      return (
+                        <div key={w.id} className="rounded-lg px-3 py-2.5 space-y-1.5" style={{ background: T.paper, border: `1px solid ${w.newHits?.length ? T.flight : T.mist}` }}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-semibold">
+                              {w.from} → {w.to}
+                              <span className="font-normal" style={{ color: T.inkSoft }}> · {w.cabin[0].toUpperCase() + w.cabin.slice(1)}</span>
+                            </span>
+                            {w.newHits?.length > 0 && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: T.flight, color: "#04060B" }}>{w.newHits.length} NEW</span>
+                            )}
+                          </div>
+                          <div className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
+                            {fmtShort(w.date)}{w.flex ? ` ±${w.flex}d` : ""}{w.maxMiles ? ` · under ${Math.round(w.maxMiles / 1000)}K` : ""} · {ago(w.checkedAt)}
+                          </div>
+                          {w.error ? (
+                            <p className="text-xs" style={{ color: T.flight }}>Last check failed — {w.error}</p>
+                          ) : best ? (
+                            <p className="text-xs">
+                              {w.total} option{w.total !== 1 ? "s" : ""} · best <b>{Math.round(best.miles / 1000)}K {progShort(best.source)}</b> on {fmtShort(best.date)}
+                              {best.taxes != null && <span style={{ color: T.inkSoft }}> + ${Math.round(best.taxes)}</span>}
+                            </p>
+                          ) : (
+                            <p className="text-xs" style={{ color: T.inkSoft }}>No {w.cabin} award space yet — watching.</p>
+                          )}
+                          {w.newHits?.length > 0 && (
+                            <div className="space-y-0.5">
+                              {w.newHits.map((h) => (
+                                <p key={h.date + h.source + h.miles} className="text-xs" style={{ color: T.flight }}>
+                                  <b>NEW</b> · {fmtShort(h.date)} · {Math.round(h.miles / 1000)}K {progShort(h.source)}{h.seats ? ` · ${h.seats} seat${h.seats !== 1 ? "s" : ""}` : ""}{h.direct ? " · nonstop" : ""}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-3 text-xs pt-0.5" style={{ color: T.inkSoft }}>
+                            <button disabled={busy} onClick={() => act(watchCheck)} className="underline disabled:opacity-50">{busy ? "checking…" : "Check now"}</button>
+                            {w.newHits?.length > 0 && <button disabled={busy} onClick={() => act(watchSeen)} className="underline">Mark seen</button>}
+                            <a href={seatsSearchLink(w.from, w.to, w.date)} target="_blank" rel="noreferrer" className="underline">seats.aero ↗</a>
+                            <button
+                              disabled={busy}
+                              onClick={async () => { const r = await act(watchRemove); if (r.data) setWatches((ws) => ws.filter((x) => x.id !== w.id)); }}
+                              className="underline"
+                            >Remove</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {watches.length < 10 && (
+                      <form
+                        className="grid grid-cols-6 gap-1.5 pt-1"
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          const r = await addWatch({ from: wf.from, to: wf.to, date: wf.date, flex: +wf.flex, cabin: wf.cabin, maxMiles: wf.max ? +wf.max * 1000 : null });
+                          if (r.data) setWf({ ...wf, from: "", to: "", max: "" });
+                        }}
+                      >
+                        {[["from", "From"], ["to", "To"]].map(([k, ph]) => (
+                          <input key={k} value={wf[k]} maxLength={3} placeholder={ph} aria-label={ph}
+                            onChange={(e) => setWf({ ...wf, [k]: e.target.value.toUpperCase().replace(/[^A-Z]/g, "") })}
+                            className="col-span-1 px-2 py-1.5 rounded-md text-xs" style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'IBM Plex Mono', monospace" }} />
+                        ))}
+                        <input type="date" value={wf.date} min={toISO(new Date())} aria-label="Date" onChange={(e) => setWf({ ...wf, date: e.target.value })}
+                          className="col-span-4 px-2 py-1.5 rounded-md text-xs" style={{ border: `1px solid ${T.mist}`, background: T.paper, colorScheme: "dark" }} />
+                        <select value={wf.cabin} aria-label="Cabin" onChange={(e) => setWf({ ...wf, cabin: e.target.value })}
+                          className="col-span-2 px-1.5 py-1.5 rounded-md text-xs" style={{ border: `1px solid ${T.mist}`, background: T.paper }}>
+                          <option value="economy">Economy</option><option value="premium">Premium</option>
+                          <option value="business">Business</option><option value="first">First</option>
+                        </select>
+                        <select value={wf.flex} aria-label="Flexibility" onChange={(e) => setWf({ ...wf, flex: e.target.value })}
+                          className="col-span-1 px-1.5 py-1.5 rounded-md text-xs" style={{ border: `1px solid ${T.mist}`, background: T.paper }}>
+                          {[0, 1, 2, 3].map((n) => <option key={n} value={n}>±{n}d</option>)}
+                        </select>
+                        <input value={wf.max} placeholder="max K" aria-label="Maximum miles in thousands" inputMode="numeric"
+                          onChange={(e) => setWf({ ...wf, max: e.target.value.replace(/\D/g, "").slice(0, 4) })}
+                          className="col-span-1 px-2 py-1.5 rounded-md text-xs" style={{ border: `1px solid ${T.mist}`, background: T.paper }} />
+                        <button type="submit" disabled={wf.from.length !== 3 || wf.to.length !== 3 || !wf.date}
+                          className="col-span-2 py-1.5 rounded-md text-xs font-bold text-white disabled:opacity-40" style={{ background: T.deep }}>Watch</button>
+                      </form>
+                    )}
+                    {watchErr && <p className="text-xs" style={{ color: T.flight }}>{watchErr}</p>}
+                  </>
+                )}
+              </div>
+            )}
 
             <div className="rounded-xl p-4 space-y-2" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
               <span className="text-sm font-bold">Any device — sync code</span>
