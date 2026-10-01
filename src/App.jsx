@@ -496,14 +496,14 @@ export default function App() {
     <div className="min-h-screen" style={{ background: T.paper, color: T.ink, fontFamily: "'Inter', system-ui, sans-serif" }}>
       <header
         className="border-b sticky top-0 z-40"
-        style={{ borderColor: T.mist, background: "rgba(6,10,18,.85)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }}
+        style={{ borderColor: T.mist, background: "rgba(244,239,230,.9)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }}
       >
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Mark />
             <div>
-              <h1 style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 700, fontSize: 19, letterSpacing: "0.28em", textTransform: "uppercase" }}>Meridian</h1>
-              <p className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>Points-first route planning</p>
+              <h1 style={{ fontFamily: "'Bodoni Moda', Georgia, serif", fontWeight: 500, fontSize: 19, letterSpacing: "0.28em", textTransform: "uppercase" }}>Meridian</h1>
+              <p className="text-xs" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>Points-first route planning</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -514,7 +514,7 @@ export default function App() {
             >
               <MapPin size={13} style={{ color: T.flight }} /> Trips
               {newWatchCount > 0 && (
-                <span title="New award space on your watchlist" className="ml-0.5 px-1.5 rounded-full text-[10px] font-bold" style={{ background: T.flight, color: "#04060B" }}>{newWatchCount}</span>
+                <span title="New award space on your watchlist" className="ml-0.5 px-1.5 rounded-full text-[10px] font-bold" style={{ background: T.flight, color: T.paper }}>{newWatchCount}</span>
               )}
             </button>
             <button
@@ -536,14 +536,14 @@ export default function App() {
               className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap"
               style={{
                 background: i === step ? T.ink : "transparent",
-                color: i === step ? "#04060B" : i < step ? T.rail : T.inkSoft,
+                color: i === step ? T.paper : i < step ? T.rail : T.inkSoft,
                 border: `1px solid ${i === step ? T.ink : T.mist}`,
               }}
             >
               <span className="flex items-center justify-center rounded-full" style={{
                 width: 16, height: 16, fontSize: 10,
                 background: i < step ? T.rail : i === step ? T.flight : T.card,
-                color: i < step ? "#04060B" : i === step ? "#04060B" : T.inkSoft,
+                color: i < step ? T.paper : i === step ? T.paper : T.inkSoft,
               }}>{i < step ? <Check size={10} /> : i + 1}</span>
               {s}
             </button>
@@ -557,11 +557,11 @@ export default function App() {
           <button
             onClick={() => setTripsOpen(true)}
             className="fixed top-5 right-5 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold"
-            style={{ zIndex: 46, border: `1px solid ${T.mist}`, color: T.ink, background: "rgba(8,13,24,.92)", boxShadow: "0 2px 14px rgba(0,0,0,.5)" }}
+            style={{ zIndex: 46, border: `1px solid ${T.mist}`, color: T.ink, background: "rgba(251,248,243,.95)", boxShadow: "0 2px 14px rgba(27,23,20,.12)" }}
           >
             <MapPin size={13} style={{ color: T.flight }} /> Trips
               {newWatchCount > 0 && (
-                <span title="New award space on your watchlist" className="ml-0.5 px-1.5 rounded-full text-[10px] font-bold" style={{ background: T.flight, color: "#04060B" }}>{newWatchCount}</span>
+                <span title="New award space on your watchlist" className="ml-0.5 px-1.5 rounded-full text-[10px] font-bold" style={{ background: T.flight, color: T.paper }}>{newWatchCount}</span>
               )}
           </button>
         </>
@@ -604,7 +604,7 @@ export default function App() {
                             {r.inGw.gw !== r.outGw.gw && <Chip tint={T.pineTint} color={T.pine}>open jaw</Chip>}
                           </span>
                         </div>
-                        <div className="flex gap-2 text-xs font-semibold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+                        <div className="flex gap-2 text-xs font-semibold" style={{ fontFamily: "'Jost', sans-serif" }}>
                           <Chip tint={T.railTint} color={T.rail}><Clock size={11} />{hm(r.totalMin)} ground</Chip>
                           <Chip tint={T.pineTint} color={T.pine}>{usd(r.totalUsd)} ground</Chip>
                         </div>
@@ -644,7 +644,7 @@ export default function App() {
                         min={toISO(new Date())}
                         onChange={(e) => { if (e.target.value) { setDepartDate(e.target.value); setFlightSel({}); } }}
                         className="px-3 py-2 rounded-lg text-sm font-semibold"
-                        style={{ border: `1px solid ${T.mist}`, background: T.paper, color: T.ink, colorScheme: "dark", fontFamily: "'IBM Plex Mono', monospace" }}
+                        style={{ border: `1px solid ${T.mist}`, background: T.paper, color: T.ink, colorScheme: "dark", fontFamily: "'Jost', sans-serif" }}
                       />
                     </label>
                     {schedule && (
@@ -905,7 +905,7 @@ export default function App() {
                                   f.est && <Chip tint={T.flightTint} color={T.flight}>est.</Chip>
                                 )}
                               </div>
-                              <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
+                              <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>
                                 {f.dep ? `${f.dep}${f.arr ? `–${f.arr}` : ""} · ` : ""}{f.via}{f.dur ? ` · ${f.dur}` : ""}
                               </span>
                             </div>
@@ -914,7 +914,7 @@ export default function App() {
                               return fp
                                 ? <div dangerouslySetInnerHTML={{ __html: fp }} />
                                 : f.flightNos && (
-                                    <p className="text-xs mt-1" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{f.flightNos}</p>
+                                    <p className="text-xs mt-1" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>{f.flightNos}</p>
                                   );
                             })()}
                             {f.roundTrip && (
@@ -939,12 +939,12 @@ export default function App() {
                             )}
                             <div className="flex items-center justify-between mt-2 flex-wrap gap-1">
                               {f.points ? (
-                                <div className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+                                <div className="text-sm font-bold" style={{ fontFamily: "'Jost', sans-serif" }}>
                                   {(f.points / 1000).toFixed(0)}K{" "}
                                   <span className="text-xs font-normal" style={{ color: T.inkSoft }}>{SOURCES[f.programId].short} + {usd(f.fees)}</span>
                                 </div>
                               ) : (
-                                <div className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{usd(f.cash)}</div>
+                                <div className="text-sm font-bold" style={{ fontFamily: "'Jost', sans-serif" }}>{usd(f.cash)}</div>
                               )}
                               <div className="flex gap-1.5">
                                 {f.points && f.cash != null && <Chip tint={T.pineTint} color={T.pine}>{cpp(f)}¢/pt{f.liveCash ? " · live" : ""}</Chip>}
@@ -1020,10 +1020,10 @@ export default function App() {
           <div className="space-y-8">
             <div className="rounded-2xl p-5 text-white" style={{ background: T.deep }}>
               <div className="flex items-baseline justify-between flex-wrap gap-2">
-                <h2 style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 700, fontSize: 22 }}>
+                <h2 style={{ fontFamily: "'Bodoni Moda', Georgia, serif", fontWeight: 500, fontSize: 22 }}>
                   {days.length} days · {origin.name} → {route.order.map((c) => cityById[c].name).join(" → ")}
                 </h2>
-                <span className="text-xs opacity-70" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+                <span className="text-xs opacity-70" style={{ fontFamily: "'Jost', sans-serif" }}>
                   {fmtShort(departDate)} – {schedule ? fmtShort(schedule.returnDate) : ""} · {route.inGw.gw} IN · {route.outGw.gw} OUT{route.inGw.gw !== route.outGw.gw && " · OPEN JAW"}
                 </span>
               </div>
@@ -1036,7 +1036,7 @@ export default function App() {
                 ].map(([k, v]) => (
                   <div key={k}>
                     <div className="text-xs opacity-60">{k}</div>
-                    <div className="font-bold text-sm mt-0.5" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{v}</div>
+                    <div className="font-bold text-sm mt-0.5" style={{ fontFamily: "'Jost', sans-serif" }}>{v}</div>
                   </div>
                 ))}
               </div>
@@ -1045,7 +1045,7 @@ export default function App() {
                   <button
                     onClick={() => makeShare(false)} disabled={share.busy}
                     className="px-3.5 py-2 rounded-lg text-xs font-bold disabled:opacity-50"
-                    style={{ background: T.flight, color: "#04060B" }}
+                    style={{ background: T.flight, color: T.paper }}
                   >{share.busy ? "Creating link…" : "Share itinerary"}</button>
                   <button
                     onClick={() => makeShare(true)} disabled={share.busy}
@@ -1057,7 +1057,7 @@ export default function App() {
                       <input
                         readOnly value={share.url} onFocus={(e) => e.target.select()}
                         className="px-2.5 py-1.5 rounded-lg text-xs min-w-0"
-                        style={{ width: 300, maxWidth: "100%", background: "rgba(0,0,0,.35)", border: "1px solid rgba(255,255,255,.2)", color: "#fff", fontFamily: "'IBM Plex Mono', monospace" }}
+                        style={{ width: 300, maxWidth: "100%", background: "rgba(0,0,0,.35)", border: "1px solid rgba(255,255,255,.2)", color: "#fff", fontFamily: "'Jost', sans-serif" }}
                       />
                       <button
                         onClick={async () => { try { await navigator.clipboard.writeText(share.url); setShare((x) => ({ ...x, copied: true })); } catch { /* select-and-copy still works */ } }}
@@ -1093,7 +1093,7 @@ export default function App() {
                   ["group", "Group", [["", "Any"], ...HOTEL_GROUPS.map((g) => [g.id, g.label]), ["other", "Indep."]]],
                 ].map(([k, label, opts]) => (
                   <div key={k} className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase" }}>{label}</span>
+                    <span className="text-xs font-bold" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase" }}>{label}</span>
                     {opts.map(([v, l]) => (
                       <button
                         key={l}
@@ -1101,7 +1101,7 @@ export default function App() {
                         className="px-2 py-1 rounded-full text-xs font-semibold"
                         style={{
                           background: hotelPrefs[k] === v ? T.ink : T.paper,
-                          color: hotelPrefs[k] === v ? "#04060B" : T.inkSoft,
+                          color: hotelPrefs[k] === v ? T.paper : T.inkSoft,
                           border: `1px solid ${hotelPrefs[k] === v ? T.ink : T.mist}`,
                         }}
                       >{l}</button>
@@ -1125,7 +1125,7 @@ export default function App() {
                         <span className="font-bold text-sm">{cityById[cid].name}</span>
                         <span className="text-xs" style={{ color: T.inkSoft }}>{nights[cid] ?? 2} night{(nights[cid] ?? 2) !== 1 && "s"}</span>
                         {stay && (
-                          <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
+                          <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>
                             {fmtShort(stay.checkIn)} → {fmtShort(stay.checkOut)}
                           </span>
                         )}
@@ -1167,7 +1167,7 @@ export default function App() {
                                 {h.pts
                                   ? <Chip tint={T.pineTint} color={T.pine}>{(h.pts / 1000).toFixed(0)}K {h.program}/nt</Chip>
                                   : <Chip tint={T.mist} color={T.inkSoft}>cash only</Chip>}
-                                <span className="text-xs font-semibold" style={{ fontFamily: "'IBM Plex Mono', monospace", color: T.inkSoft }}>{usd(h.cash)}/nt</span>
+                                <span className="text-xs font-semibold" style={{ fontFamily: "'Jost', sans-serif", color: T.inkSoft }}>{usd(h.cash)}/nt</span>
                               </div>
                               {h.pts && chosen && (
                                 <p className="text-xs mt-1.5" style={{ color: path ? T.inkSoft : T.flight }}>
@@ -1206,13 +1206,13 @@ export default function App() {
                           <div className="text-sm font-semibold">{l.label} {l.est && <span className="text-xs font-normal" style={{ color: T.flight }}>est.</span>}{l.test && <span className="text-xs font-normal" style={{ color: T.flight }}> test rate</span>}</div>
                           {l.sub && <div className="text-xs" style={{ color: T.inkSoft }}>{l.sub}</div>}
                         </div>
-                        <div className="text-sm font-bold whitespace-nowrap" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{l.value}</div>
+                        <div className="text-sm font-bold whitespace-nowrap" style={{ fontFamily: "'Jost', sans-serif" }}>{l.value}</div>
                       </div>
                     ))}
                   </React.Fragment>
                 ))}
                 <div className="px-4 py-3 flex flex-wrap gap-x-6 gap-y-1 items-center" style={{ background: T.paper }}>
-                  <span className="text-sm font-bold">Cash total: <span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{usd(ledger.cash)}</span></span>
+                  <span className="text-sm font-bold">Cash total: <span style={{ fontFamily: "'Jost', sans-serif" }}>{usd(ledger.cash)}</span></span>
                   <span className="text-sm" style={{ color: T.inkSoft }}>Retail value: {usd(ledger.retail)}</span>
                   <span className="text-sm font-bold" style={{ color: T.pine }}>Points save you {usd(Math.max(0, ledger.retail - ledger.cash))}</span>
                 </div>
@@ -1245,7 +1245,7 @@ export default function App() {
                           </div>
                         </div>
                         <div className="flex items-center gap-3 shrink-0">
-                          <span className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace", color: T.pine }}>−{usd(op.save)}</span>
+                          <span className="text-sm font-bold" style={{ fontFamily: "'Jost', sans-serif", color: T.pine }}>−{usd(op.save)}</span>
                           <button
                             onClick={op.apply}
                             className="px-3 py-1.5 rounded-lg text-xs font-bold text-white"
@@ -1271,7 +1271,7 @@ export default function App() {
                   return (
                     <div key={src} className="rounded-xl px-4 py-3 flex items-center justify-between" style={{ background: over ? T.flightTint : T.pineTint, border: `1px solid ${over ? T.flight : T.pine}33` }}>
                       <span className="text-sm font-bold">{SOURCES[src].short}</span>
-                      <span className="text-sm font-bold" style={{ fontFamily: "'IBM Plex Mono', monospace", color: over ? T.flight : T.pine }}>
+                      <span className="text-sm font-bold" style={{ fontFamily: "'Jost', sans-serif", color: over ? T.flight : T.pine }}>
                         {(pts / 1000).toFixed(0)}K / {(bal / 1000).toFixed(0)}K {over && "· over budget"}
                       </span>
                     </div>
@@ -1287,23 +1287,23 @@ export default function App() {
                 {days.map((d) => (
                   <div key={d.day} className="rounded-xl p-4 flex gap-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
                     <div className="flex flex-col items-center" style={{ minWidth: 52 }}>
-                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>Day</span>
-                      <span style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 900, fontSize: 26, lineHeight: 1 }}>{d.day}</span>
+                      <span className="text-xs font-bold uppercase tracking-wide" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>Day</span>
+                      <span style={{ fontFamily: "'Bodoni Moda', Georgia, serif", fontWeight: 500, fontSize: 26, lineHeight: 1 }}>{d.day}</span>
                       {schedule && (
-                        <span className="text-xs mt-1 whitespace-nowrap" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
+                        <span className="text-xs mt-1 whitespace-nowrap" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>
                           {fmtShort(dateForDay(schedule, d.day))}
                         </span>
                       )}
                     </div>
                     <div className="flex-1">
-                      <div className="font-bold text-sm mb-2" style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontSize: 15 }}>{d.title}</div>
+                      <div className="font-bold text-sm mb-2" style={{ fontFamily: "'Bodoni Moda', Georgia, serif", fontSize: 15 }}>{d.title}</div>
                       <div className="space-y-1.5">
                         {d.items.map((it, i) => (
                           <div key={i} className="flex items-start gap-2 text-sm">
                             <span style={{ color: it.icon === "flight" ? T.flight : it.icon === "train" ? T.rail : it.icon === "hotel" ? T.gold : T.inkSoft, marginTop: 2, flexShrink: 0 }}>
                               {it.icon === "flight" ? <Plane size={13} /> : it.icon === "train" ? <TrainFront size={13} /> : it.icon === "hotel" ? <Hotel size={13} /> : <MapPin size={13} />}
                             </span>
-                            <span className="text-xs font-bold whitespace-nowrap" style={{ minWidth: 68, color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{it.t}</span>
+                            <span className="text-xs font-bold whitespace-nowrap" style={{ minWidth: 68, color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>{it.t}</span>
                             <span className="text-sm">{it.n}</span>
                           </div>
                         ))}
@@ -1335,7 +1335,7 @@ export default function App() {
         <div className="max-w-5xl mx-auto px-4 py-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="flex items-center gap-2.5">
             <Mark size={24} />
-            <span style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 700, fontSize: 14, letterSpacing: "0.24em", textTransform: "uppercase" }}>Meridian</span>
+            <span style={{ fontFamily: "'Bodoni Moda', Georgia, serif", fontWeight: 500, fontSize: 14, letterSpacing: "0.24em", textTransform: "uppercase" }}>Meridian</span>
           </div>
           <p className="text-xs" style={{ color: T.inkSoft, maxWidth: "58ch" }}>
             Fares and hotel rates refresh live for your dates; award space is verified where marked.
@@ -1351,14 +1351,14 @@ export default function App() {
 
       {tripsOpen && (
         <div className="fixed inset-0 z-50" onClick={() => setTripsOpen(false)}>
-          <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.55)" }} />
+          <div className="absolute inset-0" style={{ background: "rgba(27,23,20,0.35)" }} />
           <aside
             onClick={(e) => e.stopPropagation()}
             className="absolute right-0 top-0 h-full w-[400px] max-w-[92vw] overflow-y-auto p-5 space-y-4 step-in"
-            style={{ background: T.paper, boxShadow: "-16px 0 48px rgba(0,0,0,.6)" }}
+            style={{ background: T.paper, boxShadow: "-16px 0 48px rgba(27,23,20,.25)" }}
           >
             <div className="flex items-center justify-between">
-              <h2 style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 600, fontSize: 20 }}>Your trips</h2>
+              <h2 style={{ fontFamily: "'Bodoni Moda', Georgia, serif", fontWeight: 500, fontSize: 20 }}>Your trips</h2>
               <button onClick={() => setTripsOpen(false)} style={{ color: T.inkSoft }}><X size={18} /></button>
             </div>
 
@@ -1411,7 +1411,7 @@ export default function App() {
                     <div key={t.code + t.savedAt} className="flex items-center justify-between gap-2 rounded-lg px-3 py-2" style={{ background: T.paper, border: `1px solid ${T.mist}` }}>
                       <div className="text-left flex-1 min-w-0">
                         <div className="text-sm font-semibold truncate">{t.label ?? t.code}</div>
-                        <div className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>{t.code}{t.savedAt ? ` · ${fmtDay(new Date(t.savedAt).toISOString().slice(0, 10))}` : ""}</div>
+                        <div className="text-xs" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>{t.code}{t.savedAt ? ` · ${fmtDay(new Date(t.savedAt).toISOString().slice(0, 10))}` : ""}</div>
                       </div>
                       <button
                         onClick={async () => {
@@ -1490,10 +1490,10 @@ export default function App() {
                               <span className="font-normal" style={{ color: T.inkSoft }}> · {w.cabin[0].toUpperCase() + w.cabin.slice(1)}</span>
                             </span>
                             {w.newHits?.length > 0 && (
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: T.flight, color: "#04060B" }}>{w.newHits.length} NEW</span>
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold" style={{ background: T.flight, color: T.paper }}>{w.newHits.length} NEW</span>
                             )}
                           </div>
-                          <div className="text-xs" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace" }}>
+                          <div className="text-xs" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>
                             {fmtShort(w.date)}{w.flex ? ` ±${w.flex}d` : ""}{w.maxMiles ? ` · under ${Math.round(w.maxMiles / 1000)}K` : ""} · {ago(w.checkedAt)}
                           </div>
                           {w.error ? (
@@ -1540,7 +1540,7 @@ export default function App() {
                         {[["from", "From"], ["to", "To"]].map(([k, ph]) => (
                           <input key={k} value={wf[k]} maxLength={3} placeholder={ph} aria-label={ph}
                             onChange={(e) => setWf({ ...wf, [k]: e.target.value.toUpperCase().replace(/[^A-Z]/g, "") })}
-                            className="col-span-1 px-2 py-1.5 rounded-md text-xs" style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'IBM Plex Mono', monospace" }} />
+                            className="col-span-1 px-2 py-1.5 rounded-md text-xs" style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'Jost', sans-serif" }} />
                         ))}
                         <input type="date" value={wf.date} min={toISO(new Date())} aria-label="Date" onChange={(e) => setWf({ ...wf, date: e.target.value })}
                           className="col-span-4 px-2 py-1.5 rounded-md text-xs" style={{ border: `1px solid ${T.mist}`, background: T.paper, colorScheme: "dark" }} />
@@ -1583,13 +1583,13 @@ export default function App() {
                 >{cloud.busy ? "Saving…" : "Save to cloud"}</button>
               )}
               {cloud.code && (
-                <p className="text-sm font-bold text-center py-1" style={{ fontFamily: "'IBM Plex Mono', monospace", letterSpacing: "0.2em", color: T.pine }}>{cloud.code}</p>
+                <p className="text-sm font-bold text-center py-1" style={{ fontFamily: "'Jost', sans-serif", letterSpacing: "0.2em", color: T.pine }}>{cloud.code}</p>
               )}
               {cloud.err && <p className="text-xs" style={{ color: T.flight }}>{cloud.err}</p>}
               <div className="flex gap-2">
                 <input
                   value={codeInput} onChange={(e) => setCodeInput(e.target.value.toUpperCase())} placeholder="Enter a code…"
-                  className="flex-1 px-3 py-2 rounded-lg text-sm" style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'IBM Plex Mono', monospace" }}
+                  className="flex-1 px-3 py-2 rounded-lg text-sm" style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'Jost', sans-serif" }}
                 />
                 <button
                   onClick={async () => {
@@ -1616,7 +1616,7 @@ export default function App() {
             style={{ background: T.paper, boxShadow: "-16px 0 48px rgba(22,24,29,.25)" }}
           >
             <div className="flex items-center justify-between">
-              <h2 style={{ fontFamily: "'Helvetica Neue', 'Inter', sans-serif", fontWeight: 900, fontSize: 20 }}>Points & preferences</h2>
+              <h2 style={{ fontFamily: "'Bodoni Moda', Georgia, serif", fontWeight: 500, fontSize: 20 }}>Points & preferences</h2>
               <button onClick={() => setPrefsOpen(false)} style={{ color: T.inkSoft }}><X size={18} /></button>
             </div>
 
@@ -1677,7 +1677,7 @@ export default function App() {
                       type="number" value={balances[k] ?? 0} step={5000} min={0}
                       onChange={(e) => setBalances({ ...balances, [k]: +e.target.value })}
                       className="w-full mt-0.5 px-2 py-1.5 rounded-lg text-sm font-semibold"
-                      style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'IBM Plex Mono', monospace" }}
+                      style={{ border: `1px solid ${T.mist}`, background: T.paper, fontFamily: "'Jost', sans-serif" }}
                     />
                   </label>
                 ))}
@@ -1706,7 +1706,7 @@ export default function App() {
                   {[["Cash fares (Travelpayouts)", diag.flights], ["Award space (Seats.aero)", diag.awards], ["Hotel rates (LiteAPI)", diag.hotels]].map(([label, v]) => (
                     <div key={label} className="flex items-start justify-between gap-2 text-xs">
                       <span style={{ color: T.inkSoft }}>{label}</span>
-                      <span className="font-bold text-right" style={{ color: v.ok ? T.pine : T.flight, fontFamily: "'IBM Plex Mono', monospace" }}>{v.note}</span>
+                      <span className="font-bold text-right" style={{ color: v.ok ? T.pine : T.flight, fontFamily: "'Jost', sans-serif" }}>{v.note}</span>
                     </div>
                   ))}
                 </div>

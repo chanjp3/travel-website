@@ -20,30 +20,30 @@ class Boundary extends React.Component {
     return (
       <div style={{
         minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-        background: "#04060B", color: "#EDF1F8", fontFamily: "'Inter', system-ui, sans-serif", padding: 24,
+        background: "#F4EFE6", color: "#1B1714", fontFamily: "'Jost', system-ui, sans-serif", padding: 24,
       }}>
         <div style={{
-          maxWidth: 460, background: "#0A0F1A", border: "1px solid rgba(140,165,210,.18)",
-          borderRadius: 4, padding: 28, boxShadow: "0 18px 50px rgba(0,0,0,.6)",
+          maxWidth: 460, background: "#FBF8F3", border: "1px solid #DDD4C7",
+          borderRadius: 4, padding: 28, boxShadow: "0 28px 56px -30px rgba(27,23,20,.45)",
         }}>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "#CE3D2A", marginBottom: 8 }}>
+          <div style={{ fontFamily: "'Jost', sans-serif", fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", color: "#7A2331", marginBottom: 8 }}>
             Unscheduled turbulence
           </div>
           <h1 style={{ fontFamily: "'Jost', sans-serif", fontWeight: 600, fontSize: 24, marginBottom: 10 }}>
             Something went wrong.
           </h1>
-          <p style={{ fontSize: 13, color: "#5D6B73", lineHeight: 1.5, marginBottom: 6 }}>
+          <p style={{ fontSize: 13, color: "#6B625A", lineHeight: 1.5, marginBottom: 6 }}>
             The planner hit an unexpected error. Restarting takes you back to the map.
           </p>
           <pre style={{
-            fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: "#5D6B73",
-            background: "#04060B", border: "1px solid rgba(140,165,210,.14)", borderRadius: 3,
+            fontFamily: "'Jost', sans-serif", fontSize: 11, color: "#6B625A",
+            background: "#F4EFE6", border: "1px solid #DDD4C7", borderRadius: 3,
             padding: 10, whiteSpace: "pre-wrap", wordBreak: "break-word", marginBottom: 16, maxHeight: 120, overflow: "auto",
           }}>{String(this.state.error?.message ?? this.state.error)}</pre>
           <button
             onClick={() => location.reload()}
             style={{
-              background: "#7FB0FF", color: "#04060B", border: "none", borderRadius: 3,
+              background: "#1B1714", color: "#F4EFE6", border: "none", borderRadius: 3,
               padding: "12px 22px", fontFamily: "'Jost', sans-serif", fontWeight: 600,
               fontSize: 14, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer",
             }}

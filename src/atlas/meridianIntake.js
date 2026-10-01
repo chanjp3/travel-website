@@ -32,7 +32,7 @@ const SCAFFOLD = `
 <div id="intro">
   <div class="inner">
     <div class="kick">Private trip atelier</div>
-    <h1>Meridian<span>Chart your journey across the night atlas</span></h1>
+    <h1>Meridian<span>Chart your journey across the atlas</span></h1>
     <div class="rule"></div>
     <button class="btn red" id="beginBtn">Begin plotting &nbsp;→</button>
     <div class="legal"><a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a></div>
@@ -43,7 +43,7 @@ const SCAFFOLD = `
   <div class="rail-head">
     <div class="mark"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.5 15.5l-8-4.7V4.2c0-.9-.7-1.7-1.5-1.7s-1.5.8-1.5 1.7v6.6l-8 4.7v2l8-2.5v5.4l-2 1.6v1.5l3.5-1 3.5 1V22l-2-1.6V15l8 2.5v-2z"/></svg></div>
     <div>
-      <div class="brand">Meridian <em>Noir</em></div>
+      <div class="brand">Meridian <em>Atelier</em></div>
       <div class="brand-sub">Points-first itineraries</div>
     </div>
   </div>
@@ -144,8 +144,8 @@ const cSel = gCountries.selectAll('path').data(countries).join('path')
 const zoom = d3.zoom().scaleExtent([1,90]).on('zoom',e=>{
   root.attr('transform',e.transform);
   curT = e.transform;
-  gCountries.selectAll('path').attr('stroke-width', .5/Math.sqrt(curT.k));
-  root.select('.graticule').attr('stroke-width', .4/Math.sqrt(curT.k));
+  gCountries.selectAll('path').attr('stroke-width', .7/curT.k); // constant hairline at any zoom
+  root.select('.graticule').attr('stroke-width', .5/curT.k);
   place();
 });
 svg.call(zoom).on('dblclick.zoom',null);

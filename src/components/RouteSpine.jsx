@@ -50,7 +50,7 @@ const SpineNode = ({ label, sub, main, mode }) => (
         width: main ? 40 : 30, height: main ? 40 : 30,
         background: main ? T.ink : mode === "flight" ? T.flightTint : T.railTint,
         border: `2.5px solid ${main ? T.ink : mode === "flight" ? T.flight : T.rail}`,
-        color: main ? "#04060B" : mode === "flight" ? T.flight : T.rail,
+        color: main ? T.paper : mode === "flight" ? T.flight : T.rail,
       }}
     >
       {main ? <TrainFront size={18} /> : <Plane size={14} />}
@@ -71,6 +71,6 @@ const SpineLink = ({ mode, label }) => (
         marginBottom: 4, marginTop: 13,
       }}
     />
-    <div className="text-xs whitespace-nowrap" style={{ color: T.inkSoft, fontFamily: "'IBM Plex Mono', monospace", fontSize: 10 }}>{label}</div>
+    <div className="text-xs whitespace-nowrap" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif", fontSize: 10 }}>{label}</div>
   </div>
 );

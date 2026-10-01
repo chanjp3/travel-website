@@ -49,7 +49,7 @@ export function AirportField({ label, value, onPick, allowClear }) {
               className="w-full text-left px-2.5 py-1.5 text-xs flex items-center gap-2"
               style={{ borderBottom: `1px solid ${T.mist}` }}
             >
-              <b style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{a.iata}</b>
+              <b style={{ fontFamily: "'Jost', sans-serif" }}>{a.iata}</b>
               <span className="truncate">{a.name}</span>
               <span className="flex-shrink-0" style={{ color: T.inkSoft }}>{a.city}</span>
             </button>

@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,400;1,500&family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..700;1,6..96,400..700&family=Jost:wght@300..600&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -11,23 +11,26 @@ html {
   text-rendering: optimizeLegibility;
 }
 
-/* The void — noir night. */
+/* Ivory paper, espresso ink. */
 body {
-  background-color: #04060b;
-  color-scheme: dark;
+  background-color: #f4efe6;
+  color: #1b1714;
+  color-scheme: light;
+  font-family: "Jost", "Futura", sans-serif;
+  font-variant-numeric: lining-nums tabular-nums;
 }
 
 ::selection {
-  background: #7fb0ff;
-  color: #04060b;
+  background: #c9a66b;
+  color: #1b1714;
 }
 
 /* Cards: consistent soft elevation instead of flat 1px boxes. */
 .rounded-xl,
 .rounded-2xl {
   box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    0 12px 32px -18px rgba(0, 0, 0, 0.55);
+    0 1px 2px rgba(27, 23, 20, 0.06),
+    0 18px 36px -26px rgba(27, 23, 20, 0.35);
 }
 span.rounded-xl,
 input.rounded-xl {
@@ -47,15 +50,15 @@ button.rounded-xl:hover:not(:disabled),
 button.rounded-2xl:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow:
-    0 0 14px rgba(127, 176, 255, 0.25),
-    0 14px 34px -16px rgba(0, 0, 0, 0.6);
+    0 0 0 1px rgba(138, 106, 47, 0.35),
+    0 20px 40px -24px rgba(27, 23, 20, 0.4);
 }
 button:active:not(:disabled) {
   transform: translateY(0) scale(0.995);
 }
 button:focus-visible,
 input:focus-visible {
-  outline: 2px solid #7fb0ff;
+  outline: 2px solid #8a6a2f;
   outline-offset: 2px;
 }
 
@@ -81,21 +84,21 @@ input:focus-visible {
 }
 
 input[type="range"] {
-  accent-color: #7fb0ff;
+  accent-color: #8a6a2f;
 }
 input[type="date"] {
-  color-scheme: dark;
+  color-scheme: light;
 }
 ::-webkit-scrollbar {
   height: 6px;
   width: 6px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(140,165,210,.25);
+  background: rgba(120,100,80,.25);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(140,165,210,.45);
+  background: rgba(120,100,80,.45);
 }
 
 /* Live-search skeleton rows */
@@ -104,10 +107,10 @@ input[type="date"] {
   to { background-position: 200px 0; }
 }
 .skel {
-  background: linear-gradient(90deg, #0c1322 25%, #131c30 50%, #0c1322 75%);
+  background: linear-gradient(90deg, #efe8dc 25%, #f8f4ec 50%, #efe8dc 75%);
   background-size: 400px 100%;
   animation: skel-sweep 1.2s linear infinite;
-  border: 1px solid rgba(140, 165, 210, 0.14);
+  border: 1px solid rgba(120, 100, 80, 0.14);
 }
 
 /* ── flight-path graphic: airline-style routing timeline ─────────────── */
@@ -117,38 +120,38 @@ input[type="date"] {
   gap: 12px;
   margin-top: 10px;
   padding: 12px 14px 10px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(140, 165, 210, 0.14);
+  background: rgba(251, 248, 243, 0.9);
+  border: 1px solid rgba(120, 100, 80, 0.14);
   border-radius: 8px;
 }
 .fp-end { text-align: center; flex: none; }
 .fp-time {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-family: "Jost", sans-serif;
   font-size: 15px;
   font-weight: 700;
-  color: #edf1f8;
+  color: #1b1714;
   white-space: nowrap;
 }
 .fp-plus {
   font-size: 9px;
-  color: #dde6f4;
+  color: #8a6a2f;
   vertical-align: super;
   margin-left: 2px;
 }
 .fp-code {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-family: "Jost", sans-serif;
   font-size: 9.5px;
   letter-spacing: 0.22em;
-  color: #7fb0ff;
+  color: #8a6a2f;
   margin-top: 3px;
 }
-.fp-code-lg { font-size: 12px; color: #edf1f8; letter-spacing: 0.18em; }
+.fp-code-lg { font-size: 12px; color: #1b1714; letter-spacing: 0.18em; }
 .fp-seg { flex: 1 1 0; min-width: 56px; text-align: center; }
 .fp-no {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-family: "Jost", sans-serif;
   font-size: 8.5px;
   letter-spacing: 0.16em;
-  color: #8c96a8;
+  color: #6b625a;
   margin-bottom: 4px;
   white-space: nowrap;
 }
@@ -156,8 +159,8 @@ input[type="date"] {
   position: relative;
   height: 2px;
   border-radius: 2px;
-  background: linear-gradient(90deg, rgba(127, 176, 255, 0.2), #7fb0ff 30%, #7fb0ff 70%, rgba(127, 176, 255, 0.2));
-  box-shadow: 0 0 8px rgba(127, 176, 255, 0.45);
+  background: linear-gradient(90deg, rgba(138, 106, 47, 0.25), #8a6a2f 30%, #8a6a2f 70%, rgba(138, 106, 47, 0.25));
+  box-shadow: none;
 }
 .fp-line::before,
 .fp-line::after {
@@ -167,8 +170,8 @@ input[type="date"] {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #7fb0ff;
-  box-shadow: 0 0 6px rgba(127, 176, 255, 0.8);
+  background: #8a6a2f;
+  box-shadow: none;
 }
 .fp-line::before { left: -2px; }
 .fp-line::after { right: -2px; }
@@ -179,16 +182,16 @@ input[type="date"] {
   transform: translate(-50%, -54%);
   font-size: 12px;
   line-height: 1;
-  color: #edf3ff;
-  background: #04060b;
+  color: #1b1714;
+  background: #fbf8f3;
   padding: 0 5px;
-  text-shadow: 0 0 8px rgba(200, 225, 255, 0.9);
+  text-shadow: none;
 }
 .fp-dur {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-family: "Jost", sans-serif;
   font-size: 8.5px;
   letter-spacing: 0.1em;
-  color: #8c96a8;
+  color: #6b625a;
   margin-top: 4px;
 }
 .fp-stop { text-align: center; flex: none; min-width: 52px; }
@@ -196,16 +199,16 @@ input[type="date"] {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #dde6f4;
-  border: 2px solid #04060b;
-  box-shadow: 0 0 8px rgba(221, 230, 244, 0.75);
+  background: #8a6a2f;
+  border: 2px solid #fbf8f3;
+  box-shadow: none;
   margin: 0 auto 3px;
 }
 .fp-lay {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-family: "Jost", sans-serif;
   font-size: 8.5px;
   letter-spacing: 0.08em;
-  color: #dde6f4;
+  color: #8a6a2f;
   margin-top: 2px;
 }
 @media (max-width: 640px) {
