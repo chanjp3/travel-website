@@ -45,7 +45,7 @@ function hotelOf({ cityName, stay, hc }) {
   };
 }
 
-export function buildShareSnapshot({ originName, stops, departDate, returnDate, openJaw, cabin, flights, hotels, ledger, days }) {
+export function buildShareSnapshot({ originName, stops, departDate, returnDate, openJaw, cabin, flights, hotels, ledger, days, playbook }) {
   const pointsUsed = Object.entries(ledger.usage ?? {}).map(([src, pts]) => ({ source: short(src) ?? src, points: pts }));
   return {
     v: 1,
@@ -59,5 +59,7 @@ export function buildShareSnapshot({ originName, stops, departDate, returnDate, 
       cash: ledger.cash, retail: ledger.retail, pointsUsed,
     },
     days: days.map((d) => ({ day: d.day, date: d.date ?? null, title: d.title, items: d.items.map((it) => ({ icon: it.icon, t: it.t, n: it.n })) })),
+    // Already plain data — steps, prices seen, links and warnings.
+    playbook: playbook ?? null,
   };
 }

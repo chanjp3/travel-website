@@ -23,6 +23,8 @@ import { bestAlternate } from "./lib/altGateways.js";
 import { serializeTrip, hydrateTrip, tripLocal } from "./lib/tripStore.js";
 import { bookLink, cashSearchLink, seatsSearchLink } from "./lib/bookLinks.js";
 import { buildShareSnapshot } from "./lib/shareSnapshot.js";
+import { buildPlaybook } from "./lib/playbook.js";
+import { BookingPlaybook } from "./components/BookingPlaybook.jsx";
 import { watchList, watchAdd, watchRemove, watchCheck, watchSeen } from "./api/client.js";
 import { saveTripCloud, loadTripCloud, shareItinerary, captureAuthFromHash, authMe, authLoginUrl, authLogout, myTrips, deleteAccountData } from "./api/client.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
@@ -377,6 +379,27 @@ export default function App() {
     return ops;
   }, [route, fOut, fBack, outLegD, backLegD, cabinPref, balances, hotelChoices, depAir, retAir]);
 
+  // The chosen plan, resolved per booking — feeds the playbook and the share snapshot.
+  const planFlights = useMemo(() => (route && fOut && fBack ? [
+    { dir: "Outbound", from: depAir, to: route.inGw.gw, date: departDate, f: fOut, mode: outMode, path: pathOut },
+    { dir: "Return", from: route.outGw.gw, to: retAir, date: schedule?.returnDate ?? null, f: fBack, mode: backMode, path: pathBack },
+  ] : []), [route, fOut, fBack, depAir, retAir, departDate, schedule, outMode, backMode, pathOut, pathBack]);
+  const planHotels = useMemo(
+    () => hotelChoices.map((hc) => ({ cityName: cityById[hc.city].name, stay: schedule?.byCity[hc.city], hc })),
+    [hotelChoices, schedule]
+  );
+  const playbook = useMemo(() => {
+    if (!ledger) return null;
+    const ground = route.legs.map((leg) => ({
+      fromName: cityById[leg.from].name, toName: cityById[leg.to].name,
+      fromAir: cityById[leg.from].air, toAir: cityById[leg.to].air,
+      date: schedule?.byCity[leg.from]?.checkOut ?? null, leg,
+    }));
+    return buildPlaybook({ flights: planFlights, hotels: planHotels, ground, jr });
+  }, [ledger, planFlights, planHotels, route, schedule, jr]);
+  // Ticks survive reloads for the same trip (same origin, stops and dates).
+  const playbookKey = route ? `${originId}|${route.order.join(",")}|${departDate}` : "";
+
   // Shareable itinerary: freeze the plan into a read-only snapshot link.
   const [share, setShare] = useState({});
   useEffect(() => setShare({}), [ledger]); // a changed plan needs a fresh link
@@ -389,12 +412,9 @@ export default function App() {
       stops: route.order.map((cid) => ({ name: cityById[cid].name, nights: nights[cid] ?? 2, checkIn: schedule?.byCity[cid]?.checkIn, checkOut: schedule?.byCity[cid]?.checkOut })),
       departDate, returnDate: schedule?.returnDate ?? null,
       openJaw: route.inGw.gw !== route.outGw.gw, cabin: cabinPref,
-      flights: [
-        { dir: "Outbound", from: depAir, to: route.inGw.gw, date: departDate, f: fOut, mode: outMode, path: pathOut },
-        { dir: "Return", from: route.outGw.gw, to: retAir, date: schedule?.returnDate ?? null, f: fBack, mode: backMode, path: pathBack },
-      ],
-      hotels: hotelChoices.map((hc) => ({ cityName: cityById[hc.city].name, stay: schedule?.byCity[hc.city], hc })),
-      ledger,
+      flights: planFlights,
+      hotels: planHotels,
+      ledger, playbook,
       days: days.map((d) => ({ ...d, date: schedule ? dateForDay(schedule, d.day) : null })),
     });
     const r = await shareItinerary(snap);
@@ -1296,6 +1316,8 @@ export default function App() {
                 })}
               </div>
             </div>
+
+            {playbook && <BookingPlaybook playbook={playbook} storeKey={playbookKey} />}
 
             {/* Day by day */}
             <div>

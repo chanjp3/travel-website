@@ -49,6 +49,28 @@
 .sh-total b { font-family: "Jost", sans-serif; }
 .sh-save b { color: #2f5a46; }
 .sh-foot { margin-top: 40px; font-size: 12px; line-height: 1.7; color: #6b625a; }
+.sh-tips { font-size: 12.5px; color: #6b625a; line-height: 1.7; }
+.sh-steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.sh-step { display: flex; gap: 14px; background: #fbf8f3; border: 1px solid #ddd4c7; border-radius: 12px; padding: 14px 16px; break-inside: avoid; }
+.sh-step.sh-done { background: rgba(47, 90, 70, 0.08); border-color: rgba(47, 90, 70, 0.35); }
+.sh-step.sh-done .sh-steptitle { text-decoration: line-through; }
+.sh-check { position: relative; flex-shrink: 0; width: 26px; height: 26px; cursor: pointer; }
+.sh-check input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.sh-check span {
+  display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%;
+  border: 1.5px solid #8a6a2f; color: #8a6a2f; font: 700 12px "Jost", sans-serif;
+}
+.sh-check input:checked + span { background: #2f5a46; border-color: #2f5a46; color: #f4efe6; font-size: 0; }
+.sh-check input:checked + span::after { content: "✓"; font-size: 14px; }
+.sh-check input:focus-visible + span { outline: 2px solid #8a6a2f; outline-offset: 2px; }
+.sh-stepbody { flex: 1; min-width: 0; }
+.sh-steptitle { font-weight: 700; font-size: 14.5px; }
+.sh-pay { font: 700 9px "Jost", sans-serif; letter-spacing: 0.14em; text-transform: uppercase; color: #6b625a; margin-left: 6px; }
+.sh-pay-points { color: #2f5a46; }
+.sh-how { list-style: decimal; margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; line-height: 1.6; }
+.sh-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.sh-link { background: #1b1714; color: #f4efe6; border-radius: 8px; padding: 6px 11px; font: 700 11.5px "Jost", sans-serif; text-decoration: none; }
+.sh-conf { display: none; font-size: 12px; color: #6b625a; margin-top: 10px; }
 @media (max-width: 640px) {
   .sh-tiles { grid-template-columns: repeat(2, 1fr); }
   .sh-row { flex-direction: column; gap: 6px; }
@@ -68,6 +90,13 @@
   .sh-save b { color: #0a7a3c; }
   .sh-stars { color: #b8860b; }
   .sh-line { border-color: #ddd; }
+  .sh-step { background: #fff !important; border-color: #ccc; }
+  .sh-check span { border-color: #555; color: #555; }
+  .sh-link { background: none; color: #1d4ed8; padding: 0; font-weight: 400; }
+  .sh-link::after { content: " " attr(href); font-size: 9px; color: #555; word-break: break-all; }
+  .sh-links { display: block; }
+  .sh-links .sh-link { display: block; margin-top: 2px; }
+  .sh-conf { display: block; }
   .fp { background: #fff; border-color: #ccc; }
   .fp-time, .fp-code-lg { color: #111; }
   .fp-code { color: #1d4ed8; }
