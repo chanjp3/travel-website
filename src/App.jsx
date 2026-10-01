@@ -188,8 +188,12 @@ export default function App() {
 
   const outId = flightSel.out ?? pickDefault(outLegD);
   const backId = flightSel.back ?? pickDefault(backLegD);
-  const fOut = outLegD?.options.find((f) => f.id === outId);
-  const fBackReal = backLegD?.options.find((f) => f.id === backId);
+  // Nothing live for a leg (API unreachable, daily cap hit, no results):
+  // price it from the labelled estimates so the itinerary and booking
+  // playbook still build instead of rendering an empty page.
+  const estPick = (leg, chosen) => leg?.options.find((f) => f.id === (chosen ?? pickDefault(leg)));
+  const fOut = outLegD?.options.find((f) => f.id === outId) ?? estPick(outLeg, flightSel.out);
+  const fBackReal = backLegD?.options.find((f) => f.id === backId) ?? (fOut?.roundTrip ? undefined : estPick(backLeg, flightSel.back));
   // A chosen round-trip fare on the outbound already contains the return
   // flight — the itinerary must not dead-end just because the return leg
   // has nothing separate to select.
