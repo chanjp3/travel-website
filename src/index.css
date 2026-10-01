@@ -71,6 +71,18 @@ input:focus-visible {
   animation: step-in 0.4s cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
 
+/* Cascading entrance for lists: flight options, hotels, day cards. */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+.rise {
+  animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rise, .step-in { animation: none; }
+}
+
 /* Live-data loading: quiet signal pulse. */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }

@@ -18,6 +18,7 @@ import { seatsSearchLink } from "../lib/bookLinks.js";
 import { bestPath, describePath } from "../lib/funding.js";
 import { SOURCES, DEFAULT_BALANCES } from "../data/transferPartners.js";
 import { showDetailMap, hideDetailMap, destroyDetailMap } from "./detailMap.js";
+import { mountIntroGlobe } from "./introGlobe.js";
 import { HOTEL_GROUPS, brandGroupOf } from "../lib/hotelBrands.js";
 import { searchCities } from "../data/world.js";
 import { attractionsFor } from "../lib/trip.js";
@@ -30,9 +31,10 @@ const SCAFFOLD = `
   <div id="bannerQ"></div>
 </div>
 <div id="intro">
+  <canvas id="introGlobe" aria-hidden="true"></canvas>
   <div class="inner">
     <div class="kick">Private trip atelier</div>
-    <h1>Meridian<span>Chart your journey across the atlas</span></h1>
+    <h1><span class="word">Meridian</span><span>Chart your journey across the atlas</span></h1>
     <div class="rule"></div>
     <button class="btn red" id="beginBtn">Begin plotting &nbsp;→</button>
     <div class="legal"><a href="/terms.html">Terms</a> · <a href="/privacy.html">Privacy</a></div>
@@ -1076,10 +1078,12 @@ function flyPlane(leg){
   requestAnimationFrame(frame);
 }
 // ---- boot ------------------------------------------------------
+const stopGlobe = mountIntroGlobe(container.querySelector('#introGlobe'));
 $('#beginBtn').onclick=()=>{
   $('#intro').classList.add('hide');
+  setTimeout(stopGlobe, 900); // after the fade — no point spinning a hidden globe
   $('#ticket').classList.add('show');
   setTimeout(stepOriginCountry, RM?0:350);
 };
-return () => { destroyDetailMap(); container.innerHTML = ''; };
+return () => { stopGlobe(); destroyDetailMap(); container.innerHTML = ''; };
 }

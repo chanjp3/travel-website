@@ -1,4 +1,6 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
+import { animate } from "framer-motion";
+import TripRouteMap from "./components/TripRouteMap.jsx";
 import {
   Plane, TrainFront, MapPin, Clock, Check, ChevronRight, ChevronLeft,
   Sparkles, Hotel, Wallet, Star, Info, Eye, X, Search, Globe, Calendar,
@@ -48,6 +50,18 @@ const SUGGEST_META = {
   kanazawa: { why: "The quieter Hokuriku arc: Kenroku-en garden, geisha district.", add: "+2h 20m · ≈$95 rail" },
   hiroshima: { why: "Peace Memorial + Miyajima, 1h 25m past Osaka.", add: "+2h 50m · ≈$142 rail" },
 };
+
+/** A figure that counts up to its value when it first appears. */
+function CountUp({ value, format }) {
+  const [shown, setShown] = useState(0);
+  const from = useRef(0);
+  useEffect(() => {
+    const ctl = animate(from.current, value, { duration: 1.1, ease: [0.2, 0.7, 0.2, 1], onUpdate: (v) => setShown(v) });
+    from.current = value;
+    return () => ctl.stop();
+  }, [value]);
+  return <>{format(shown)}</>;
+}
 
 export default function App() {
   const [step, setStep] = useState(0);
@@ -685,6 +699,8 @@ export default function App() {
               </div>
             )}
 
+            <TripRouteMap legs={[{ from: depAir, to: route.inGw.gw }, { from: route.outGw.gw, to: retAir }]} />
+
             {/* Long-haul flights with funding paths */}
             <div className="grid md:grid-cols-2 gap-5">
               {[
@@ -869,15 +885,15 @@ export default function App() {
                       </p>
                     )}
                     <div className="space-y-2">
-                      {flList.map((f) => {
+                      {flList.map((f, fi) => {
                         const chosen = sel === f.id;
                         const path = f.points ? bestPath(f.programId, f.points, balances) : null;
                         return (
                           <button
                             key={f.id}
                             onClick={() => setFlightSel({ ...flightSel, [key]: f.id })}
-                            className="w-full text-left rounded-xl p-3"
-                            style={{ background: chosen ? T.card : T.paper, border: `1.5px solid ${chosen ? T.flight : T.mist}` }}
+                            className="w-full text-left rounded-xl p-3 rise"
+                            style={{ background: chosen ? T.card : T.paper, border: `1.5px solid ${chosen ? T.flight : T.mist}`, animationDelay: `${Math.min(fi, 8) * 70}ms` }}
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center gap-2">
@@ -1029,14 +1045,14 @@ export default function App() {
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
                 {[
-                  ["Cash out of pocket", usd(ledger.cash)],
-                  ["Full retail value", usd(ledger.retail)],
-                  ["You save", usd(Math.max(0, ledger.retail - ledger.cash))],
-                  ["Points deployed", `${(Object.values(ledger.usage).reduce((a, b) => a + b, 0) / 1000).toFixed(0)}K total`],
-                ].map(([k, v]) => (
+                  ["Cash out of pocket", ledger.cash, usd],
+                  ["Full retail value", ledger.retail, usd],
+                  ["You save", Math.max(0, ledger.retail - ledger.cash), usd],
+                  ["Points deployed", Object.values(ledger.usage).reduce((a, b) => a + b, 0), (v) => `${(v / 1000).toFixed(0)}K total`],
+                ].map(([k, v, fmt]) => (
                   <div key={k}>
                     <div className="text-xs opacity-60">{k}</div>
-                    <div className="font-bold text-sm mt-0.5" style={{ fontFamily: "'Jost', sans-serif" }}>{v}</div>
+                    <div className="mt-0.5" style={{ fontFamily: "'Bodoni Moda', Georgia, serif", fontSize: 26 }}><CountUp value={v} format={fmt} /></div>
                   </div>
                 ))}
               </div>
@@ -1079,6 +1095,7 @@ export default function App() {
               <div className="rounded-xl p-4 mb-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
                 <RouteSpine route={route} originId={originId} />
               </div>
+              <div className="mb-4"><TripRouteMap legs={[{ from: depAir, to: route.inGw.gw }, { from: route.outGw.gw, to: retAir }]} height={300} /></div>
               <JourneyMap route={route} originId={originId} />
             </div>
 
@@ -1142,7 +1159,7 @@ export default function App() {
                         )}
                       </div>
                       <div className="grid sm:grid-cols-2 gap-2">
-                        {hotels.map((h) => {
+                        {hotels.map((h, hi) => {
                           const chosen = chosenName === h.name.toLowerCase();
                           const n = nights[cid] ?? 2;
                           const path = h.pts ? bestPath(h.pid, h.pts * n, balances) : null;
@@ -1150,8 +1167,8 @@ export default function App() {
                             <button
                               key={h.name}
                               onClick={() => setHotelPicks({ ...hotelPicks, [cid]: h.name })}
-                              className="text-left rounded-xl p-3"
-                              style={{ background: chosen ? T.card : T.paper, border: `1.5px solid ${chosen ? T.gold : T.mist}` }}
+                              className="text-left rounded-xl p-3 rise"
+                              style={{ background: chosen ? T.card : T.paper, border: `1.5px solid ${chosen ? T.gold : T.mist}`, animationDelay: `${Math.min(hi, 8) * 60}ms` }}
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <span className="font-bold text-sm">{h.name}</span>
@@ -1284,8 +1301,8 @@ export default function App() {
             <div>
               <SectionLabel>Day by day</SectionLabel>
               <div className="space-y-3">
-                {days.map((d) => (
-                  <div key={d.day} className="rounded-xl p-4 flex gap-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+                {days.map((d, di) => (
+                  <div key={d.day} className="rounded-xl p-4 flex gap-4 rise" style={{ background: T.card, border: `1px solid ${T.mist}`, animationDelay: `${Math.min(di, 10) * 80}ms` }}>
                     <div className="flex flex-col items-center" style={{ minWidth: 52 }}>
                       <span className="text-xs font-bold uppercase tracking-wide" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>Day</span>
                       <span style={{ fontFamily: "'Bodoni Moda', Georgia, serif", fontWeight: 500, fontSize: 26, lineHeight: 1 }}>{d.day}</span>
