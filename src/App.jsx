@@ -639,14 +639,14 @@ export default function App() {
         style={{ borderColor: T.mist, background: "rgba(244,239,230,.9)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }}
       >
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             <Mark />
-            <div>
+            <div className="hidden sm:block">
               <h1 style={{ fontFamily: "'Bodoni Moda', Georgia, serif", fontWeight: 500, fontSize: 19, letterSpacing: "0.28em", textTransform: "uppercase" }}>Meridian</h1>
-              <p className="text-xs" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>Points-first route planning</p>
+              <p className="text-xs hidden sm:block" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase" }}>Points-first route planning</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
             <button
               onClick={() => setTripsOpen(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
@@ -662,7 +662,7 @@ export default function App() {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold"
               style={{ border: `1px solid ${T.mist}`, color: T.ink, background: T.card }}
             >
-              <Wallet size={13} style={{ color: T.rail }} /> Points & preferences
+              <Wallet size={13} style={{ color: T.rail }} /> <span className="hidden sm:inline">Points & preferences</span><span className="sm:hidden">Points</span>
             </button>
             {step > 0 && (
               <button
@@ -671,9 +671,11 @@ export default function App() {
                 style={{ border: `1px solid ${T.mist}`, color: T.inkSoft, background: T.card }}
               >Start over</button>
             )}
-            <Chip tint={liveMode() ? T.pineTint : T.flightTint} color={liveMode() ? T.pine : T.flight}>
-              {liveMode() ? "LIVE FARES CONNECTED" : "ESTIMATE MODE"}
-            </Chip>
+            <span className="hidden md:inline-flex">
+              <Chip tint={liveMode() ? T.pineTint : T.flightTint} color={liveMode() ? T.pine : T.flight}>
+                {liveMode() ? "LIVE FARES CONNECTED" : "ESTIMATE MODE"}
+              </Chip>
+            </span>
           </div>
         </div>
         <div className="max-w-5xl mx-auto px-4 pb-3 flex gap-1 overflow-x-auto">
@@ -1376,9 +1378,12 @@ export default function App() {
                   const stay = schedule?.byCity[cid];
                   return (
                     <div key={cid}>
-                      <div className="flex items-baseline gap-2 mb-2 flex-wrap">
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
                         <span className="font-bold text-sm">{cityById[cid].name}</span>
-                        <span className="text-xs" style={{ color: T.inkSoft }}>{nights[cid] ?? 2} night{(nights[cid] ?? 2) !== 1 && "s"}</span>
+                        <span className="text-xs flex items-center gap-1.5" style={{ color: T.inkSoft }}>
+                          <NightsStepper n={nights[cid] ?? 2} setN={(v) => setNights({ ...nights, [cid]: v })} max={30} label={`nights in ${cityById[cid].name}`} />
+                          night{(nights[cid] ?? 2) !== 1 && "s"}
+                        </span>
                         {stay && (
                           <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>
                             {fmtShort(stay.checkIn)} → {fmtShort(stay.checkOut)}

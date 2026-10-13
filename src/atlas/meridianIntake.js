@@ -230,7 +230,10 @@ function showCard(html){
   mb.onclick=(e)=>{ e.stopPropagation(); qcard.classList.toggle('min'); mb.textContent=qcard.classList.contains('min')?'+':'—'; };
   qcard.onclick=()=>{ if(qcard.classList.contains('min')){ qcard.classList.remove('min'); mb.textContent='—'; } };
 }
-function hideCard(){ qcard.classList.remove('show'); }
+function hideCard(){ qcard.classList.remove('show','typing'); }
+// Phones: give the sheet the screen while a field with suggestions is in use.
+qcard.addEventListener('focusin',e=>{ if(innerWidth<=640&&e.target.matches('input[type=text]')) qcard.classList.add('typing'); });
+qcard.addEventListener('focusout',()=>setTimeout(()=>{ if(!qcard.contains(document.activeElement)) qcard.classList.remove('typing'); },200));
 const FOOT_LABELS={from:'Choosing origin',date:'Setting departure',to:'Choosing destination',flight:'Choosing your flight',nights:'Allocating nights',stops:'Plotting the route',return:'Return & home'};
 function ticket(seg,val,active){
   const el = $('#t-'+seg);
