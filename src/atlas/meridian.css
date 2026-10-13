@@ -391,3 +391,31 @@
 .f-warn b{color:var(--ok);font-weight:500}
 .leg .modes .mode{min-width:120px}
 .leg .mode .best{white-space:nowrap;left:8px;right:auto;max-width:calc(100% - 16px);overflow:hidden;text-overflow:ellipsis}
+
+/* ---------- hotel map layers (city tour) ---------- */
+.dm-district{font:500 10px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:#6B5222;
+  background:rgba(251,248,243,.86);border:1px solid rgba(138,106,47,.45);border-radius:2px;padding:3px 7px;
+  cursor:pointer;white-space:nowrap;box-shadow:0 1px 3px rgba(27,23,20,.12)}
+.dm-district:hover{background:#FBF8F3;border-color:var(--route);color:var(--ink)}
+.dm-place{display:flex;align-items:center;gap:3px;cursor:default}
+.dm-ico{display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:999px;font-size:9.5px;line-height:1;
+  background:#FBF8F3;border:1.5px solid var(--hair);box-shadow:0 1px 2px rgba(27,23,20,.2)}
+.dm-food .dm-ico{border-color:#B0573A}
+.dm-shop .dm-ico{border-color:#6E5A8C}
+.dm-sights .dm-ico{border-color:var(--route);color:var(--route)}
+.dm-place-name{display:none;font:400 10.5px var(--body);background:rgba(251,248,243,.94);color:var(--ink);
+  padding:1px 6px;border-radius:2px;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.dm-place:hover .dm-place-name,.dm-place.dm-top .dm-place-name{display:block}
+.dm-pin.dm-high .dm-dot{background:#5C4419}
+.dm-pin.dm-low .dm-dot{background:#C2A574}
+.layerbar{display:flex;flex-wrap:wrap;gap:5px;margin:2px 0 8px}
+.layerbar button{font-family:var(--mono);font-weight:500;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  padding:5px 8px;border:1px solid var(--hair);border-radius:2px;background:none;color:var(--ink-soft);cursor:pointer;transition:all .25s}
+.layerbar button.on{background:var(--ink);color:#F4EFE6;border-color:var(--ink)}
+.layerbar button:hover{border-color:var(--route)}
+.dcard{border:1px solid rgba(138,106,47,.45);background:rgba(138,106,47,.06);border-radius:2px;padding:10px 12px;margin:4px 0 10px}
+.dcard .dn{font-family:var(--serif);font-style:italic;font-size:16px}
+.dcard .dk{font-size:12px;font-weight:300;color:var(--ink-soft);margin-top:2px;line-height:1.5}
+.dcard .dp{font-family:var(--mono);font-size:10.5px;color:var(--ink);margin-top:6px}
+.hrow-photo{width:38px;height:38px;border-radius:2px;object-fit:cover;flex:none;background:var(--hair)}
+.htag{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ok);margin-left:6px}

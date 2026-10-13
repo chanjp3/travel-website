@@ -7,6 +7,8 @@
  *   GET /api/hotels?lat=50.81&lon=-0.37&name=Worthing&checkIn=…&checkOut=…
  *   GET /api/awards?from=TPA&to=HND&date=2026-10-12
  *       → Seats.aero cached award availability for that exact route+date
+ *   GET /api/places?lat=35.67&lon=139.76&radius=1500&kind=sights|food|shop
+ *       → named places around a point (OpenStreetMap via Overpass, cached)
  *
  * Providers (checked in this order per endpoint):
  *   TRAVELPAYOUTS_TOKEN — free tier. Aviasales cached market fares (economy).
@@ -564,27 +566,89 @@ async function liteHotels(env, q) {
   const rates = await res.json();
   const out = [];
   for (const r of rates.data ?? []) {
-    let min = null;
+    let min = null, best = null;
     for (const rt of r.roomTypes ?? []) {
       for (const rate of rt.rates ?? []) {
         const amt = rate?.retailRate?.total?.[0]?.amount;
-        if (amt != null && (min == null || amt < min)) min = amt;
+        if (amt != null && (min == null || amt < min)) { min = amt; best = { rate, room: rt }; }
       }
     }
     const h = meta.get(String(r.hotelId));
     if (h && min != null) {
+      // Taxes the hotel collects on arrival aren't in the total — surface them.
+      const dueAtHotel = (best?.rate?.retailRate?.taxesAndFees ?? [])
+        .filter((t) => t && t.included === false && +t.amount > 0).reduce((s, t) => s + +t.amount, 0);
+      const tag = best?.rate?.cancellationPolicies?.refundableTag;
       out.push({
         name: h.name, id: h.id, price: +min,
         stars: h.stars ?? null,
         rating: h.rating ?? null,               // guest review score (0–10)
         reviews: h.reviewCount ?? h.reviews ?? null,
         lat: h.latitude ?? null, lon: h.longitude ?? null,
+        photo: h.main_photo ?? h.thumbnail ?? null,
+        room: best?.rate?.name ?? null,
+        refundable: tag === "RFN" ? true : tag === "NRFN" ? false : null,
+        dueAtHotel: dueAtHotel ? Math.round(dueAtHotel) : null,
         // sandbox keys ("sand_…") return simulated rates — never real prices
         ...(env.LITEAPI_KEY.startsWith("sand_") ? { testRate: true } : {}),
       });
     }
   }
   return out.sort((a, b) => a.price - b.price).slice(0, 12);
+}
+
+/* ── Places: what's around a hotel (OpenStreetMap via Overpass) ──────────
+ * Map layers for the city tour — sights, restaurants and cafés, shopping.
+ * Keyless and worldwide. Overpass is a shared public service, so every
+ * area is edge-cached for a week (coordinates rounded to ~1 km) and only
+ * named places come back, notable ones (Wikidata, Michelin) ranked first.
+ * Swap OVERPASS_URL for a self-hosted or commercial instance at scale. */
+const PLACE_QUERIES = {
+  sights: (a) => `nwr["tourism"~"^(attraction|museum|gallery|viewpoint|zoo|aquarium|theme_park)$"]["name"](${a});
+    nwr["historic"~"^(monument|castle|memorial|ruins|palace|archaeological_site|city_gate)$"]["name"](${a});
+    nwr["leisure"~"^(park|garden)$"]["name"]["wikidata"](${a});
+    nwr["amenity"="place_of_worship"]["name"]["wikidata"](${a});`,
+  food: (a) => `nwr["amenity"~"^(restaurant|cafe|bar|pub)$"]["name"](${a});`,
+  shop: (a) => `nwr["shop"~"^(mall|department_store)$"]["name"](${a});
+    nwr["shop"~"^(boutique|clothes|jewelry|shoes|bag|fashion_accessories|watches|perfumery|cosmetics|gift|antiques|art)$"]["name"](${a});
+    way["landuse"="retail"]["name"](${a});`,
+};
+const placeSub = (t) => t.cuisine?.split(";")[0]?.replace(/_/g, " ")
+  ?? t.shop?.replace(/_/g, " ") ?? t.tourism?.replace(/_/g, " ") ?? t.historic?.replace(/_/g, " ")
+  ?? t.leisure ?? t.amenity?.replace(/_/g, " ") ?? (t.landuse === "retail" ? "shopping street" : null);
+async function osmPlaces(env, q) {
+  const kind = PLACE_QUERIES[q.kind] ? q.kind : "sights";
+  const lat = Math.round(+q.lat * 100) / 100, lon = Math.round(+q.lon * 100) / 100;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+  const r = Math.min(4000, Math.max(500, Math.round((+q.radius || 1500) / 250) * 250));
+  const cacheKey = `https://places.local/${kind}?lat=${lat}&lon=${lon}&r=${r}`;
+  const cache = globalThis.caches?.default;
+  if (cache) { const hit = await cache.match(cacheKey); if (hit) return hit.json(); }
+  const area = `around:${kind === "food" ? Math.min(r, 1500) : r},${lat},${lon}`;
+  const body = `[out:json][timeout:20];(${PLACE_QUERIES[kind](area)});out center tags 400;`;
+  const res = await fetch(env.OVERPASS_URL || "https://overpass-api.de/api/interpreter", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "Meridian trip planner (map layers)" },
+    body: "data=" + encodeURIComponent(body),
+  });
+  if (!res.ok) throw new Error(`Overpass failed: ${res.status}`);
+  const j = await res.json();
+  const seen = new Set();
+  const out = (j.elements ?? []).map((e) => {
+    const t = e.tags ?? {};
+    const la = e.lat ?? e.center?.lat, lo = e.lon ?? e.center?.lon;
+    if (!t.name || la == null || lo == null) return null;
+    const rank = (t.wikidata ? 3 : 0) + (t["michelin"] || t["michelin:stars"] ? 3 : 0) + (t.website ? 1 : 0) + (t.tourism === "museum" || t.tourism === "attraction" ? 1 : 0);
+    return { name: t["name:en"] ?? t.name, lat: +la.toFixed(5), lon: +lo.toFixed(5), kind, sub: placeSub(t), rank };
+  }).filter((p) => p && !seen.has(p.name) && seen.add(p.name))
+    .sort((a, b) => b.rank - a.rank)
+    .slice(0, kind === "food" ? 60 : 50);
+  if (cache) {
+    await cache.put(cacheKey, new Response(JSON.stringify(out), {
+      headers: { "Cache-Control": "public, max-age=604800", "Content-Type": "application/json" },
+    }));
+  }
+  return out;
 }
 
 /* ── Metering: who may spend paid lookups ────────────────────────────────
@@ -762,6 +826,10 @@ async function handle(req, env, ctx) {
             })),
           })),
         })) ?? []);
+      }
+      if (url.pathname === "/api/places") {
+        try { return json(await osmPlaces(env, q)); }
+        catch (e) { return json({ error: String(e.message ?? e).slice(0, 120) }, 502); }
       }
       if (url.pathname === "/api/hotels") {
         if (!env.AMADEUS_KEY) {

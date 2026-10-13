@@ -11,7 +11,7 @@ import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
-import { geoSearch, liveHotelsDetailed, liveMode, limitNotes, searchPOI, liveFlights, liveAwards } from "../api/client.js";
+import { geoSearch, liveHotelsDetailed, liveMode, limitNotes, searchPOI, liveFlights, liveAwards, livePlaces } from "../api/client.js";
 import { mergeLiveLeg, mergeLiveAwards } from "../lib/liveMerge.js";
 import { applyFlightView, layoversOf, stopsOf, SORTS, STOP_CAPS } from "../lib/flightFilters.js";
 import { partyFare } from "../lib/party.js";
@@ -19,7 +19,8 @@ import { flightPathHTML, chainPathHTML } from "../lib/flightPath.js";
 import { seatsSearchLink } from "../lib/bookLinks.js";
 import { bestPath, describePath } from "../lib/funding.js";
 import { SOURCES, DEFAULT_BALANCES } from "../data/transferPartners.js";
-import { showDetailMap, hideDetailMap, destroyDetailMap } from "./detailMap.js";
+import { showDetailMap, hideDetailMap, destroyDetailMap, flyDetail } from "./detailMap.js";
+import { districtsNear, inDistrict } from "../data/districts.js";
 import { mountIntroGlobe } from "./introGlobe.js";
 import { HOTEL_GROUPS, brandGroupOf } from "../lib/hotelBrands.js";
 import { searchCities } from "../data/world.js";
@@ -765,7 +766,22 @@ function stepReturnFlight(){
 
 /* ---- 3. cities and nights — any country, nights per stop, reorderable ---- */
 const stopKey=s=>`${s.city}|${s.cc??''}`;
-function stopFromCity(c,cc){ return {city:c.city,lat:c.lat,lon:c.lon,nights:2,airports:c.airports||[],cc:cc??c.cc??null}; }
+function stopFromCity(c,cc){ return refineStop({city:c.city,lat:c.lat,lon:c.lon,nights:2,airports:c.airports||[],cc:cc??c.cc??null}); }
+/* An airport city's position is the middle of its airports (Tokyo sits
+   between HND and NRT, over Chiba) — geocode the real center once so the
+   hotel map, hotel search and hops start downtown. */
+const centerCache=new Map();
+function refineStop(st){
+  if(st.refined) return st;
+  const key=`${st.city}|${st.cc??''}`;
+  const apply=c=>{ if(c){ st.lat=c.lat; st.lon=c.lon; } st.refined=true; return st; };
+  st._refining=(centerCache.has(key)?Promise.resolve(centerCache.get(key)):geoSearch(st.city.replace(/\s*\(.+\)$/,'')).then(list=>{
+    const near=st;
+    const hit=(list??[]).find(g=>g.latitude!=null&&(!st.cc||String(g.country_code??'').toUpperCase()===st.cc)&&haversine(near,{lat:g.latitude,lon:g.longitude})<150);
+    const c=hit?{lat:hit.latitude,lon:hit.longitude}:null; centerCache.set(key,c); return c;
+  }).catch(()=>null)).then(apply);
+  return st;
+}
 function stepItinerary(browseCC){
   ticket(null,null,'stops');
   setCountryMode(true);
@@ -842,7 +858,7 @@ function stepItinerary(browseCC){
         sg.querySelectorAll('div[data-i]').forEach(d=>d.onclick=()=>{ const it=hits[+d.dataset.i]; add(stopFromCity(it.c,it.cc)); });
         sg.querySelectorAll('div[data-t]').forEach(d=>{
           const t=towns[+d.dataset.t];
-          d.onclick=()=>add({city:t.name,lat:t.latitude,lon:t.longitude,nights:2,airports:[],cc:(t.country_code??'').toUpperCase()||null});
+          d.onclick=()=>add({city:t.name,lat:t.latitude,lon:t.longitude,nights:2,airports:[],cc:(t.country_code??'').toUpperCase()||null,refined:true});
         });
       };
       draw();
@@ -861,6 +877,7 @@ function stepItinerary(browseCC){
   const add=s=>{
     if(totalNights()>=90){ toast('That is a long trip — 90 nights is the limit'); return; }
     trip.stops.push(s); refresh();
+    s._refining?.then(()=>{ if(qcard.querySelector('#stopsNow')) drawStopBadges(trip.stops); });
   };
   clickHandler=f=>browse(a2Of(f));
   const f=countryByCC.get(cc); if(f){ markCountry(f); zoomToFeature(f); }
@@ -887,12 +904,16 @@ function drawHotelPins(hotels,nights){
   place();
 }
 let tourSeq=0;
-const tourFilters={ stars:0, rating:0, budget:0, group:'' };
+const tourFilters={ stars:0, rating:0, budget:0, group:'', sort:'price' };
+const tourLayers={ sights:true, food:false, shop:false, districts:true };
+const LAYERS=[['sights','◆ Sights'],['food','🍽 Restaurants'],['shop','🛍 Shopping'],['districts','▒ Nicer districts']];
 const attrCache={};
+const escT=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function stepCityTour(i){
   if(i>=trip.stops.length||i<0){ gMarkers.selectAll('.hotelpin').remove(); hideDetailMap(); return afterHotels(); }
-  const seq=++tourSeq;
   const s=trip.stops[i];
+  if(s._refining&&!s.refined){ s._refining.finally(()=>stepCityTour(i)); return; }
+  const seq=++tourSeq;
   const cityName=s.city.replace(/\s*\(.+\)$/,'');
   ticket(null,null,'stops');
   clearDots(); gMarkers.selectAll('.stopbadge,.hotelpin').remove(); gArcs.selectAll('*').remove();
@@ -900,67 +921,116 @@ function stepCityTour(i){
   let lead=0; for(let j=0;j<i;j++) lead+=trip.stops[j].nights;
   const ci=addDaysISO(arriveISO(),lead), co=addDaysISO(arriveISO(),lead+s.nights);
   const attractions=attractionListFor(s.city);
+  const rooms=Math.max(1,Math.ceil(trip.pax.adults/2));
+  const districts=districtsNear(s.lat,s.lon);
 
   let all=[];                              // latest unfiltered results for this area
   let state=liveMode()?'loading':'off';    // loading | ok | error | off
   let searching=false;                     // a pan/zoom re-search in flight
   let errMsg=null;
   let attrs=attrCache[cityName]??[];
+  let view={lat:s.lat,lon:s.lon,radius:2500};
+  let district=null;                       // the district card that's open
+  const places={};                         // kind → [places] for the current area
 
+  const nightly=h=>h.price/Math.max(s.nights,1);
   const passes=h=>{
-    const nightly=h.price/Math.max(s.nights,1);
     if(tourFilters.stars&&(h.stars??0)<tourFilters.stars) return false;
     if(tourFilters.rating&&h.rating!=null&&h.rating<tourFilters.rating) return false;
-    if(tourFilters.budget&&nightly>tourFilters.budget) return false;
+    if(tourFilters.budget&&nightly(h)>tourFilters.budget) return false;
     if(tourFilters.group&&(brandGroupOf(h.name)??'other')!==tourFilters.group) return false;
+    if(tourFilters.refundable&&h.refundable!==true) return false;
     return true;
   };
-  const filtered=()=>all.filter(passes);
+  // Must-see ranking: average distance to the pinned sights.
+  const nearSights=h=>attrs.length&&h.lat!=null?d3.mean(attrs,a=>haversine(h,a)):Infinity;
+  const sorted=list=>tourFilters.sort==='rating'?[...list].sort((a,b)=>(b.rating??0)-(a.rating??0))
+    :tourFilters.sort==='sights'?[...list].sort((a,b)=>nearSights(a)-nearSights(b)):list;
+  const filtered=()=>sorted(all.filter(passes));
+  // Price shading — the data-backed read on where the high end is.
+  const tiers=()=>{
+    const ps=all.map(nightly).sort((a,b)=>a-b);
+    if(ps.length<4) return null;
+    const lo=ps[Math.floor(ps.length/3)], hi=ps[Math.floor(2*ps.length/3)];
+    return Object.fromEntries(all.map(h=>[h.name,nightly(h)>=hi?'high':nightly(h)<=lo?'low':'mid']));
+  };
+  const distStats=d=>{
+    const inside=all.filter(h=>h.lat!=null&&inDistrict(h,d));
+    return inside.length?{n:inside.length,typical:d3.median(inside,nightly)}:null;
+  };
 
   const pushPins=()=>{
     const hs=filtered();
+    const layerPlaces=['sights','food','shop'].filter(k=>tourLayers[k]).flatMap(k=>(places[k]??[]).map(p=>({...p,top:p.rank>=3})));
     const ok=showDetailMap(container,{
       lat:s.lat, lon:s.lon, pins:hs, attrs, nights:s.nights, fly:false,
       selected:trip.hotelPicks[s.city]?.name,
+      places:layerPlaces, districts:tourLayers.districts?districts:[], tiers:tiers(),
       onPinClick:(h)=>{ if(seq!==tourSeq) return;
         trip.hotelPicks[s.city]=trip.hotelPicks[s.city]?.name===h.name?undefined:{...h,nights:s.nights};
         render(); pushPins(); },
-      onViewChange:(area)=>{ if(seq===tourSeq&&state!=='off') fetchArea(area); },
+      onViewChange:(area)=>{ if(seq!==tourSeq) return; view=area; if(state!=='off') fetchArea(area); loadPlaces(); },
+      onDistrictClick:(d)=>{ if(seq!==tourSeq) return; district=d; render(); },
       onFail:()=>{ if(seq===tourSeq) drawHotelPins(hs,s.nights); },
     });
     if(!ok) drawHotelPins(hs,s.nights);
   };
 
+  const loadPlaces=()=>{
+    if(!liveMode()) return;
+    for(const k of ['sights','food','shop']){
+      if(!tourLayers[k]) continue;
+      const at=view;
+      livePlaces(at.lat,at.lon,Math.min(at.radius,4000),k).then(list=>{
+        if(seq!==tourSeq||!Array.isArray(list)) return;
+        places[k]=list.slice(0,k==='food'?45:35); pushPins();
+      });
+    }
+  };
+
   const render=()=>{
     const hs=filtered();
-    const hidden=all.length-hs.length;
+    const hidden=all.length-all.filter(passes).length;
     const sel=(id,opts,val)=>`<select id="${id}" class="tsel">${opts.map(([v,l])=>`<option value="${v}"${String(val)===String(v)?' selected':''}>${l}</option>`).join('')}</select>`;
     const filterRow=`<div class="tfilters">
       ${sel('fStars',[[0,'★ any'],[3,'3★+'],[4,'4★+'],[5,'5★']],tourFilters.stars)}
       ${sel('fRating',[[0,'reviews any'],[7,'7+'],[8,'8+'],[9,'9+']],tourFilters.rating)}
       ${sel('fBudget',[[0,'$/nt any'],[150,'≤$150'],[250,'≤$250'],[400,'≤$400'],[700,'≤$700']],tourFilters.budget)}
       ${sel('fGroup',[['','group any'],...HOTEL_GROUPS.map(g=>[g.id,g.label]),['other','Independent']],tourFilters.group)}
+      ${sel('fSort',[['price','sort: price'],['rating','sort: rating'],['sights',attrs.length?'sort: near sights':'near sights (pinning…)']],tourFilters.sort)}
+      <label class="tchk" style="margin:4px 0 0"><input type="checkbox" id="fRef"${tourFilters.refundable?' checked':''}> Free cancellation only</label>
     </div>`;
+    const dcard=district?(()=>{ const st=distStats(district);
+      return `<div class="dcard"><div class="dn">${escT(district.name)}</div><div class="dk">${escT(district.known)}</div>
+        <div class="dp">${st?`Typical rate here $${Math.round(st.typical).toLocaleString()}/nt · ${st.n} hotel${st.n!==1?'s':''} in view`:'No live rates inside it yet'}
+        · <button type="button" class="flre" id="dSearch">search hotels here</button> · <button type="button" class="flre" id="dClose">close</button></div></div>`; })():'';
+    const layerBar=`<div class="layerbar">${LAYERS.map(([k,l])=>`<button type="button" data-layer="${k}" class="${tourLayers[k]?'on':''}"${k==='districts'&&!districts.length?' title="Not mapped for this city yet — pins are shaded by price instead"':''}>${l}</button>`).join('')}</div>
+      ${tourLayers.districts&&!districts.length?'<div class="hint sm" style="margin:-4px 0 8px">Nicer districts aren\'t mapped here yet — darker pins are the pricier hotels.</div>':''}`;
     const hotelBlock=
       state==='loading' ? '<div class="hint" style="color:var(--route)">Finding live hotel rates…</div>'
-      : state==='error' ? `<div class="hint" style="color:var(--route)">Live rates unavailable — ${errMsg}.</div>
+      : state==='error' ? `<div class="hint" style="color:var(--route)">Live rates unavailable — ${escT(errMsg)}.</div>
           <button class="btn ghost sm" id="rt">Retry</button>`
       : state==='off' ? '<div class="hint">Connect the worker (VITE_API_BASE) for live hotel rates.</div>'
-      : filterRow+(all.some(h=>h.testRate)?'<div class="hint" style="color:var(--route)"><b>Test rates.</b> The hotel provider is in sandbox mode — these prices are simulated, not real.</div>':'')+(hs.length?`<label class="minihead">Where you could stay — pan or zoom the map to search that area</label>
-        <div class="optlist" style="max-height:150px">${hs.slice(0,8).map((h,j)=>`
-          <div class="opt${trip.hotelPicks[s.city]?.name===h.name?' sel':''}" data-h="${j}">
-            <span class="iata">$${Math.round(h.price/Math.max(s.nights,1))}</span>
-            <span class="nm">${h.name}<div class="sub">${h.stars>0?`<span style="color:var(--gold)">${'★'.repeat(Math.min(h.stars,5))}</span>`:''}${h.rating!=null?` ${h.rating}/10`:''}${h.reviews?` · ${h.reviews.toLocaleString()} reviews`:''}${h.testRate?' · <span style="color:var(--route)">test rate</span>':''}</div></span>
-          </div>`).join('')}</div>
+      : filterRow+(all.some(h=>h.testRate)?'<div class="hint" style="color:var(--route)"><b>Test rates.</b> The hotel provider is in sandbox mode — these prices are simulated, not real.</div>':'')+(hs.length?`<label class="minihead">Where you could stay${rooms>1?` · ${rooms} rooms`:''} — pan or zoom the map to search that area</label>
+        <div class="optlist" style="max-height:170px">${hs.slice(0,8).map((h,j)=>{
+          const total=h.price*rooms;
+          return `<div class="opt${trip.hotelPicks[s.city]?.name===h.name?' sel':''}" data-h="${j}">
+            ${h.photo&&/^https:\/\//.test(h.photo)?`<img class="hrow-photo" src="${escT(h.photo)}" alt="" loading="lazy">`:`<span class="iata">$${Math.round(nightly(h))}</span>`}
+            <span class="nm">${escT(h.name)}<div class="sub">${h.stars>0?`<span style="color:var(--gold)">${'★'.repeat(Math.min(h.stars,5))}</span>`:''}${h.rating!=null?` ${escT(h.rating)}/10`:''}${h.reviews?` · ${(+h.reviews).toLocaleString()} reviews`:''}${h.testRate?' · <span style="color:var(--route)">test rate</span>':''}</div>
+              <div class="sub">${rooms>1?`${rooms} rooms · `:''}<b style="color:var(--ink);font-weight:500">$${Math.round(total).toLocaleString()} total</b>${h.dueAtHotel?` + $${h.dueAtHotel*rooms} at hotel`:''}${h.refundable===true?'<span class="htag">free cancellation</span>':''}${tourFilters.sort==='sights'&&nearSights(h)<Infinity?` · ${nearSights(h).toFixed(1)} km to sights`:''}</div></span>
+          </div>`; }).join('')}</div>
         ${hidden>0?`<div class="hint">${hidden} more hidden by filters</div>`:''}`
         :`<div class="hint">${all.length?'Nothing matches these filters here — loosen one or move the map.':'No hotels in this area — pan or zoom the map to search elsewhere.'}</div>`);
     showCard(`
       <div class="eyebrow">Step 5 — Hotels · city ${i+1} of ${trip.stops.length}</div>
-      <div class="question">${s.city}</div>
+      <div class="question">${escT(s.city)}</div>
       <div class="hint">${s.nights} night${s.nights>1?'s':''} · ${fmtDate(ci)} → ${fmtDate(co)}${searching?' · <span style="color:var(--route)">searching this area…</span>':''}</div>
+      <label class="minihead" style="margin-top:4px">Show on the map</label>
+      ${layerBar}
+      ${dcard}
       ${hotelBlock}
       ${attractions.length?`<label class="minihead">Don't miss</label>
-        <div class="attrlist">${attractions.slice(0,5).map(a=>`<div>· ${a}</div>`).join('')}</div>`:''}
+        <div class="attrlist">${attractions.slice(0,5).map(a=>`<div>· ${escT(a)}</div>`).join('')}</div>`:''}
       <div class="row" style="margin-top:12px">
         <button class="btn red" id="nx">${i+1<trip.stops.length?'Next city →':'Continue →'}</button>
         <button class="btn ghost sm" id="bk">Back</button>
@@ -972,10 +1042,19 @@ function stepCityTour(i){
       trip.hotelPicks[s.city]=trip.hotelPicks[s.city]?.name===h.name?undefined:{...h,nights:s.nights};
       render(); pushPins();
     });
+    qcard.querySelectorAll('.layerbar button').forEach(b=>b.onclick=()=>{
+      const k=b.dataset.layer; tourLayers[k]=!tourLayers[k];
+      if(k==='districts'&&!tourLayers[k]) district=null;
+      render(); pushPins(); if(tourLayers[k]&&k!=='districts') loadPlaces();
+    });
     [['fStars','stars'],['fRating','rating'],['fBudget','budget']].forEach(([id,k])=>{
       const el=$('#'+id); if(el) el.onchange=()=>{ tourFilters[k]=+el.value; render(); pushPins(); };
     });
     const fg=$('#fGroup'); if(fg) fg.onchange=()=>{ tourFilters.group=fg.value; render(); pushPins(); };
+    const fs=$('#fSort'); if(fs) fs.onchange=()=>{ tourFilters.sort=fs.value; render(); pushPins(); };
+    const fr=$('#fRef'); if(fr) fr.onchange=()=>{ tourFilters.refundable=fr.checked; render(); pushPins(); };
+    const ds=$('#dSearch'); if(ds) ds.onclick=()=>{ const d=district; flyDetail(d.lat,d.lon,14.2); fetchArea({lat:d.lat,lon:d.lon,radius:Math.round(d.r*1.6)}); };
+    const dc=$('#dClose'); if(dc) dc.onclick=()=>{ district=null; render(); };
     const rt=$('#rt'); if(rt) rt.onclick=()=>stepCityTour(i);
     $('#nx').onclick=()=>stepCityTour(i+1);
     $('#bk').onclick=()=>{ if(i===0){ gMarkers.selectAll('.hotelpin').remove(); hideDetailMap(); clearDots();
@@ -1003,8 +1082,8 @@ function stepCityTour(i){
   };
 
   render();
-  showDetailMap(container,{ lat:s.lat, lon:s.lon, pins:[], attrs, nights:s.nights, fly:true });
-  if(liveMode()) fetchArea(null);
+  showDetailMap(container,{ lat:s.lat, lon:s.lon, pins:[], attrs, nights:s.nights, fly:true, districts:tourLayers.districts?districts:[] });
+  if(liveMode()){ fetchArea(null); loadPlaces(); }
 
   // Geocode the top attractions once per city; pin them when found nearby.
   if(!attrCache[cityName]){
@@ -1022,7 +1101,7 @@ function stepCityTour(i){
         if(seq!==tourSeq) return;
       }
       attrCache[cityName]=found;
-      if(seq===tourSeq){ attrs=found; pushPins(); }
+      if(seq===tourSeq){ attrs=found; render(); pushPins(); }
     })();
   }
 }
