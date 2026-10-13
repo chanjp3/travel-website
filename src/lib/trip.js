@@ -40,17 +40,23 @@ export function attractionsFor(cityId) {
 }
 
 /* ── day-by-day itinerary assembly ─────────────────────────── */
-export function buildDays(route, nights, originId) {
+/** opts: {noReturn, hops (between-cities, with .choice), depAir, retAir, homeName} */
+export function buildDays(route, nights, originId, opts = {}) {
   const origin = cityById[originId];
   const days = [];
   let d = 1;
   const firstCity = cityById[route.order[0]];
-  const longHaul = true; // positioning legs handled by flight engine
+  const hopBy = Object.fromEntries((opts.hops ?? []).map((h) => [h.key, h]));
+  const hopLine = (h) => {
+    const ch = h.choice;
+    return ch ? `${h.a.name} → ${h.b.name} · ${ch.label}${ch.svc ? ` (${ch.svc})` : ""} · ${hm(ch.min)} · ≈$${ch.total.toLocaleString()}` : `${h.a.name} → ${h.b.name}`;
+  };
+  const iconOf = (h) => (h?.choice?.mode === "flight" ? "flight" : "train");
 
   days.push({
     day: d++, city: null, title: `Depart ${origin.name}`,
     items: [
-      { icon: "flight", t: "Departure", n: `${origin.air} → ${route.inGw.gw} (${firstCity.name})` },
+      { icon: "flight", t: "Departure", n: `${opts.depAir ?? origin.air} → ${route.inGw.gw} (${firstCity.name})` },
       { icon: "flight", t: "En route", n: "Long-haul leg — connections per your selected flight" },
     ],
   });
@@ -64,14 +70,19 @@ export function buildDays(route, nights, originId) {
       if (night === 0) {
         if (idx === 0) {
           items.push({ icon: "flight", t: "Arrival", n: `Land ${route.inGw.gw}` });
-          items.push({ icon: "train", t: `+${hm(route.inGw.min)}`, n: `Airport → ${c.name} hotel (door to door)` });
+          const inHop = Object.values(hopBy).find((h) => h.key.startsWith("@"));
+          if (inHop) items.push({ icon: iconOf(inHop), t: "Onward", n: hopLine(inHop) });
+          else items.push({ icon: "train", t: `+${hm(route.inGw.min)}`, n: `Airport → ${c.name} hotel (door to door)` });
           const a = pool.shift();
           if (a) items.push({ icon: "spot", t: "Evening", n: a.n });
         } else {
           const leg = route.legs[idx - 1];
-          const legIcon = leg.mode === "rail" ? "train" : "flight";
-          const legCost = leg.yen ? `¥${leg.yen.toLocaleString()}` : `$${Math.round(leg.usd)}`;
-          items.push({ icon: legIcon, t: "Morning", n: `${cityById[leg.from].name} → ${c.name} · ${leg.svc} · ${hm(leg.min)} · ${legCost}` });
+          const hop = hopBy[`${leg.from}>${leg.to}`];
+          if (hop) items.push({ icon: iconOf(hop), t: "Morning", n: hopLine(hop) });
+          else {
+            const legCost = leg.yen ? `¥${leg.yen.toLocaleString()}` : `$${Math.round(leg.usd)}`;
+            items.push({ icon: leg.mode === "rail" ? "train" : "flight", t: "Morning", n: `${cityById[leg.from].name} → ${c.name} · ${leg.svc} · ${hm(leg.min)} · ${legCost}` });
+          }
           items.push({ icon: "hotel", t: "Midday", n: "Check in, drop bags" });
           let used = 0;
           while (pool.length && used < 4.5) {
@@ -95,11 +106,17 @@ export function buildDays(route, nights, originId) {
   });
 
   const lastCity = cityById[route.order[route.order.length - 1]];
+  if (opts.noReturn) {
+    days.push({ day: d++, city: null, title: `Trip ends in ${lastCity.name}`, items: [{ icon: "spot", t: "Morning", n: "Check out — no return flight on this trip" }] });
+    return days;
+  }
+  const outHop = Object.values(hopBy).find((h) => h.key.includes(">@"));
   days.push({
-    day: d++, city: null, title: `Fly home to ${origin.name}`,
+    day: d++, city: null, title: `Fly home to ${opts.homeName ?? origin.name}`,
     items: [
-      { icon: "train", t: "Morning", n: `${lastCity.name} → ${route.outGw.gw} · ${hm(route.outGw.min)}` },
-      { icon: "flight", t: "Departure", n: `${route.outGw.gw} → ${origin.air}` },
+      outHop ? { icon: iconOf(outHop), t: "Morning", n: hopLine(outHop) }
+        : { icon: "train", t: "Morning", n: `${lastCity.name} → ${route.outGw.gw} · ${hm(route.outGw.min)}` },
+      { icon: "flight", t: "Departure", n: `${route.outGw.gw} → ${opts.retAir ?? origin.air}` },
     ],
   });
   return days;

@@ -24,6 +24,10 @@ import { serializeTrip, hydrateTrip, tripLocal } from "./lib/tripStore.js";
 import { bookLink, cashSearchLink, seatsSearchLink } from "./lib/bookLinks.js";
 import { buildShareSnapshot } from "./lib/shareSnapshot.js";
 import { buildPlaybook } from "./lib/playbook.js";
+import { DEFAULT_PAX, seatsOf, peopleOf, roomsOf, partyFare, paxText } from "./lib/party.js";
+import { hopOptions, chosenOption, fmtMin } from "./lib/groundModes.js";
+import { applyFlightView, SORTS, STOP_CAPS } from "./lib/flightFilters.js";
+import { km } from "./lib/geo.js";
 import { BookingPlaybook } from "./components/BookingPlaybook.jsx";
 import { watchList, watchAdd, watchRemove, watchCheck, watchSeen } from "./api/client.js";
 import { saveTripCloud, loadTripCloud, shareItinerary, captureAuthFromHash, authMe, authLoginUrl, authLogout, myTrips, deleteAccountData } from "./api/client.js";
@@ -53,6 +57,14 @@ const SUGGEST_META = {
   hiroshima: { why: "Peace Memorial + Miyajima, 1h 25m past Osaka.", add: "+2h 50m · ≈$142 rail" },
 };
 
+/** Stand-in "return flight" for one-way trips with no way home. */
+const NO_RETURN = { id: "no-return", noReturn: true, airline: "—", cabin: "", cash: 0, points: null, fees: 0 };
+
+/** ISO country code for a city: explicit, else its airport's country. */
+const iso2Of = (c) => c?.iso2 ?? airportByIata.get(c?.air)?.cc ?? null;
+/** A real airport for a city when one is close enough to fly from. */
+const cityIata = (c) => { const ap = airportByIata.get(c?.air); return ap && km(c, ap) < 120 ? ap.iata : null; };
+
 /** A figure that counts up to its value when it first appears. */
 function CountUp({ value, format }) {
   const [shown, setShown] = useState(0);
@@ -67,6 +79,7 @@ function CountUp({ value, format }) {
 
 export default function App() {
   const [step, setStep] = useState(0);
+  const [intakeKey, setIntakeKey] = useState(0); // remounts the map flow on Start over
   const [originId, setOriginId] = useState("tampa");
   const [departDate, setDepartDate] = useState(defaultDepart());
   const [destIds, setDestIds] = useState([]);
@@ -94,36 +107,50 @@ export default function App() {
   const [startAt, setStartAt] = useState(null);      // landing city — the trip starts here
   const [inGw, setInGw] = useState(null);   // chosen arrival airport {iata, lat, lon}
   const [outGw, setOutGw] = useState(null);  // chosen return-departure airport
+  const [tripType, setTripType] = useState("round"); // round | oneway | noreturn
+  const [pax, setPax] = useState({ ...DEFAULT_PAX });
+  const [arriveLag, setArriveLag] = useState(null);  // days from departure to landing, when known
+  const [hopModes, setHopModes] = useState({});      // between-cities choice per hop key
+  const [flightView, setFlightView] = useState({ sort: "best", stops: "any", hideSep: false, overnight: true, avoid: "" });
+  const noReturn = tripType === "noreturn";
+  const seats = seatsOf(pax), rooms = roomsOf(pax);
 
   const origin = cityById[originId];
   const depAir = originAir ?? origin.air;
   const retAir = homeAir ?? origin.air;
-  const results = useMemo(
-    () => (destIds.length >= 1 ? scoreRoutes(destIds, wCost, originId, { endAt, startAt, inGw, outGw }) : null),
-    [destIds, wCost, originId, endAt, startAt, inGw, outGw]
-  );
+  const results = useMemo(() => {
+    if (!destIds.length) return null;
+    const opts = { endAt, startAt, inGw, outGw };
+    const best = scoreRoutes(destIds, wCost, originId, opts);
+    // The traveler's own order leads; better orders are offered as suggestions.
+    const mine = scoreRoutes(destIds, wCost, originId, { ...opts, fixedOrder: destIds }).top[0];
+    const sig = (r) => r.order.join(">") + r.inGw.gw + r.outGw.gw;
+    const top = [mine, ...best.top.filter((r) => sig(r) !== sig(mine))].slice(0, 3);
+    return { ...best, top, mine, bestIsMine: sig(best.top[0]) === sig(mine) };
+  }, [destIds, wCost, originId, endAt, startAt, inGw, outGw]);
   const route = results?.top[Math.min(routeIdx, (results?.top.length ?? 1) - 1)];
 
   // Long-haul options for the chosen route: estimate set first, live merge on top
   const outLegEst = useMemo(() => (route ? legOptions(originId, route.order[0]) : null), [route, originId]);
   const backLegEst = useMemo(
-    () => (route ? legOptions(route.order[route.order.length - 1], originId) : null),
-    [route, originId]
+    () => (route && !noReturn ? legOptions(route.order[route.order.length - 1], originId) : null),
+    [route, originId, noReturn]
   );
 
   const schedule = useMemo(
-    () => buildSchedule(route, nights, departDate, outLegEst?.routing.min),
-    [route, nights, departDate, outLegEst]
+    () => buildSchedule(route, nights, departDate, outLegEst?.routing.min, arriveLag),
+    [route, nights, departDate, outLegEst, arriveLag]
   );
 
   // A true round trip (same airports both ways) unlocks the round-trip
   // fare cache as a fallback for the outbound lookup.
-  const mirrorRT = route && route.inGw.gw === route.outGw.gw && depAir === retAir;
-  const liveOut = useLiveLeg(depAir, route?.inGw.gw, departDate, cabinPref, mirrorRT ? schedule?.returnDate : null, legVia.out);
-  const liveBack = useLiveLeg(route?.outGw.gw, retAir, schedule?.returnDate, cabinPref, null, legVia.back);
+  const mirrorRT = !noReturn && route && route.inGw.gw === route.outGw.gw && depAir === retAir;
+  const [liveTick, setLiveTick] = useState(0); // bump to re-check every live price
+  const liveOut = useLiveLeg(depAir, route?.inGw.gw, departDate, cabinPref, mirrorRT ? schedule?.returnDate : null, legVia.out, liveTick, flightView.minLay ?? null);
+  const liveBack = useLiveLeg(noReturn ? null : route?.outGw.gw, noReturn ? null : retAir, schedule?.returnDate, cabinPref, null, legVia.back, liveTick, flightView.minLay ?? null);
   const [awardsTick, setAwardsTick] = useState(0);
   const awardsOut = useLiveAwards(depAir, route?.inGw.gw, departDate, cabinPref, awardsTick);
-  const awardsBack = useLiveAwards(route?.outGw.gw, retAir, schedule?.returnDate, cabinPref, awardsTick);
+  const awardsBack = useLiveAwards(noReturn ? null : route?.outGw.gw, noReturn ? null : retAir, schedule?.returnDate, cabinPref, awardsTick);
   const outLeg = useMemo(
     () => mergeLiveAwards(mergeLiveLeg(outLegEst, liveOut.offers, cabinPref), awardsOut.rows, departDate),
     [outLegEst, liveOut.offers, cabinPref, awardsOut.rows, departDate]
@@ -132,7 +159,10 @@ export default function App() {
     () => mergeLiveAwards(mergeLiveLeg(backLegEst, liveBack.offers, cabinPref), awardsBack.rows, schedule?.returnDate),
     [backLegEst, liveBack.offers, cabinPref, awardsBack.rows, schedule?.returnDate]
   );
-  const liveHotelsMap = useLiveHotelsMap(schedule);
+  const liveHotelsMap = useLiveHotelsMap(schedule, liveTick);
+  // When live prices last landed — shown on the itinerary with a re-check.
+  const pricedAt = Math.max(liveOut.at ?? 0, liveBack.at ?? 0) || null;
+  const recheckPrices = () => { setLiveTick((t) => t + 1); setAwardsTick((t) => t + 1); };
 
   const pickDefault = (leg) => {
     if (!leg) return null;
@@ -197,12 +227,13 @@ export default function App() {
   // A chosen round-trip fare on the outbound already contains the return
   // flight — the itinerary must not dead-end just because the return leg
   // has nothing separate to select.
-  const fBack = fBackReal ?? (fOut?.roundTrip ? {
+  const fBack = noReturn ? NO_RETURN : fBackReal ?? (fOut?.roundTrip ? {
     id: "rt-included", airline: fOut.airline, cabin: fOut.cabin,
     programId: null, points: null, fees: 0, cash: 0, rtIncluded: true,
   } : undefined);
-  const pathOut = fOut?.points ? bestPath(fOut.programId, fOut.points, balances) : null;
-  const pathBack = fBack?.points ? bestPath(fBack.programId, fBack.points, balances) : null;
+  // award seats are per person: fund the whole party's miles
+  const pathOut = fOut?.points ? bestPath(fOut.programId, fOut.points * seats, balances) : null;
+  const pathBack = fBack?.points ? bestPath(fBack.programId, fBack.points * seats, balances) : null;
 
   // Nearby-airport advisor: is there a better-value gateway < ~30 min from
   // either end's city? (NRT picked but HND prices better, etc.)
@@ -234,12 +265,12 @@ export default function App() {
   const [saveName, setSaveName] = useState("");
   const [codeInput, setCodeInput] = useState("");
   const [cloud, setCloud] = useState({});
-  const stateBundle = { originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, tourHotels, legVia, intakePicks, hotelPrefs, cabinPref, pointsOnly, wCost, balances };
+  const stateBundle = { originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, tourHotels, legVia, intakePicks, hotelPrefs, cabinPref, pointsOnly, wCost, balances, tripType, pax, arriveLag, hopModes, flightView };
   useEffect(() => {
     if (step === 0 || !destIds.length) return;
     const t = setTimeout(() => tripLocal.autosave(serializeTrip(stateBundle)), 800);
     return () => clearTimeout(t);
-  }, [step, originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, tourHotels, legVia, intakePicks, hotelPrefs, cabinPref, pointsOnly, wCost, balances]);
+  }, [step, originId, destIds, nights, departDate, startAt, endAt, originAir, homeAir, inGw, outGw, hotelPicks, tourHotels, legVia, intakePicks, hotelPrefs, cabinPref, pointsOnly, wCost, balances, tripType, pax, arriveLag, hopModes, flightView]);
   const applyTrip = (data) => {
     if (!data) return;
     hydrateTrip(data);
@@ -255,6 +286,9 @@ export default function App() {
     if (data.hotelPrefs) setHotelPrefs((p) => ({ ...p, ...data.hotelPrefs }));
     setCabinPref(data.cabinPref ?? "Business"); setPointsOnly(data.pointsOnly ?? false); setWCost(data.wCost ?? 0.5);
     if (data.balances) setBalances(data.balances);
+    setTripType(data.tripType ?? "round"); setPax({ ...DEFAULT_PAX, ...(data.pax ?? {}) });
+    setArriveLag(data.arriveLag ?? null); setHopModes(data.hopModes ?? {});
+    if (data.flightView) setFlightView((v) => ({ ...v, ...data.flightView }));
     setRouteIdx(0); setFlightSel({}); setTripsOpen(false); setStep(1);
   };
   const autoSaved = useMemo(() => (tripsOpen ? tripLocal.loadAuto() : null), [tripsOpen]);
@@ -300,7 +334,36 @@ export default function App() {
   }, [tripsOpen, auth.status]);
 
   const jr = useMemo(() => jrPassAnalysis(route), [route]);
-  const days = useMemo(() => (route ? buildDays(route, nights, originId) : []), [route, nights, originId]);
+
+  // Between cities: every hop of the trip on the ground (or a short flight),
+  // priced for the party. Landing airport → first stop and last stop → the
+  // airport home become hops when they're more than a short transfer.
+  const hops = useMemo(() => {
+    if (!route) return [];
+    const P = (c) => ({ name: c.name, lat: c.lat, lon: c.lon, iso2: iso2Of(c), iata: cityIata(c) });
+    const AP = (iata) => {
+      const a = airportByIata.get(iata);
+      return a ? { name: `${a.city} (${a.iata})`, lat: a.lat, lon: a.lon, iso2: a.cc, iata: a.iata } : null;
+    };
+    const list = [];
+    const first = cityById[route.order[0]], last = cityById[route.order[route.order.length - 1]];
+    const inAp = AP(route.inGw.gw);
+    if (inAp && km(first, inAp) > 60) list.push({ key: `@${inAp.iata}>${first.id}`, a: inAp, b: P(first), date: schedule?.arrive ?? null, rail: null });
+    route.legs.forEach((l) => list.push({
+      key: `${l.from}>${l.to}`, a: P(cityById[l.from]), b: P(cityById[l.to]),
+      date: schedule?.byCity[l.from]?.checkOut ?? null, rail: l.mode === "rail" && l.pack ? l : null,
+    }));
+    const outAp = noReturn ? null : AP(route.outGw.gw);
+    if (outAp && km(last, outAp) > 60) list.push({ key: `${last.id}>@${outAp.iata}`, a: P(last), b: outAp, date: schedule?.returnDate ?? null, rail: null });
+    return list.map((h) => {
+      const r = hopOptions({ a: h.a, b: h.b, pax, rail: h.rail, date: h.date });
+      return { ...h, ...r, choice: chosenOption(r, hopModes[h.key]) };
+    });
+  }, [route, schedule, pax, hopModes, noReturn]);
+  const days = useMemo(
+    () => (route ? buildDays(route, nights, originId, { noReturn, hops, depAir, retAir, homeName: airportByIata.get(retAir)?.city }) : []),
+    [route, nights, originId, noReturn, hops, depAir, retAir]
+  );
 
   // Merge live rates into a city's list and make sure a hotel picked on the
   // map tour is ALWAYS in it — the itinerary re-searches a different area,
@@ -324,11 +387,11 @@ export default function App() {
       const list = pool.length ? pool : hotels;
       const hotel = hotels.find((h) => h.name.toLowerCase() === pickedName(cid)) ?? list[0];
       const n = nights[cid] ?? 2;
-      const path = hotel.pts ? bestPath(hotel.pid, hotel.pts * n, balances) : null;
+      const path = hotel.pts ? bestPath(hotel.pid, hotel.pts * n * rooms, balances) : null;
       const requested = hotelPay[cid] ?? (pointsOnly && path ? "points" : "cash");
       return { city: cid, hotel, nights: n, sample, path, mode: requested === "points" && path ? "points" : "cash" };
     });
-  }, [route, hotelPicks, tourHotels, hotelPay, nights, balances, pointsOnly, liveHotelsMap, hotelPrefs]);
+  }, [route, hotelPicks, tourHotels, hotelPay, nights, balances, pointsOnly, liveHotelsMap, hotelPrefs, rooms]);
 
   const outMode = pointsOnly || flightPay.out === "points" ? "points" : "cash";
   const backMode = fBack?.rtIncluded ? "cash" : pointsOnly || flightPay.back === "points" ? "points" : "cash";
@@ -339,9 +402,27 @@ export default function App() {
         { label: `${depAir} → ${route.inGw.gw}`, f: fOut, mode: outMode, path: pathOut },
         { label: `${route.outGw.gw} → ${retAir}${fBack.rtIncluded ? " (included in the round-trip fare)" : ""}`, f: fBack, mode: backMode, path: pathBack },
       ],
-      hotels: hotelChoices, route, jr,
+      hotels: hotelChoices, route, jr, hops, pax, noReturn,
     });
-  }, [route, fOut, fBack, flightPay, pathOut, pathBack, hotelChoices, jr, pointsOnly, origin]);
+  }, [route, fOut, fBack, flightPay, pathOut, pathBack, hotelChoices, jr, pointsOnly, origin, hops, pax, noReturn]);
+
+  // Per-city view: the stay plus the hop that gets you there.
+  const byCity = useMemo(() => {
+    if (!route) return [];
+    return route.order.map((cid) => {
+      const hc = hotelChoices.find((x) => x.city === cid);
+      const hotelCash = hc && hc.mode !== "points" ? (hc.hotel.cash ?? 0) * hc.nights * rooms : 0;
+      const pts = hc && hc.mode === "points" && hc.path ? hc.path.srcPts : 0;
+      const hop = hops.find((h) => h.key.endsWith(`>${cid}`));
+      const inCash = hop?.choice?.total ?? 0;
+      return {
+        cid, name: cityById[cid].name, nights: nights[cid] ?? 2,
+        hotelLabel: pts ? `${(pts / 1000).toFixed(0)}K pts` : hc ? usd(hotelCash) : "—",
+        inLabel: hop?.choice ? `${hop.choice.label} · ${usd(inCash)}` : "—",
+        cash: hotelCash + inCash, pts,
+      };
+    });
+  }, [route, hotelChoices, hops, nights, rooms]);
 
   // "Pay with points instead" — after the itinerary is formed in cash, find
   // every line a fundable award or hotel program could take over, with the
@@ -350,17 +431,18 @@ export default function App() {
     if (!route || !fOut || !fBack) return [];
     const ops = [];
     const legOp = (key, leg, sel, label, retOptions = 1) => {
-      if (!sel || sel.points || sel.rtIncluded) return; // already points / covered
+      if (!sel || sel.points || sel.rtIncluded || sel.noReturn) return; // already points / covered / none
       if (sel.roundTrip && !retOptions) return; // swap would strand the return leg
       const cands = (leg?.options ?? [])
         .filter((f) => f.points && f.cabin === cabinPref && f.id !== sel.id)
-        .map((f) => ({ f, path: bestPath(f.programId, f.points, balances) }))
+        .map((f) => ({ f, path: bestPath(f.programId, f.points * seats, balances) }))
         .filter((x) => x.path);
       if (!cands.length) return;
       const best = cands.sort((a, b) => a.f.points - b.f.points)[0];
-      const cashNow = sel.cash ?? 0;
-      const save = Math.max(0, Math.round(cashNow - (best.f.fees ?? 0)));
-      const cpp = cashNow && best.f.points ? (cashNow - (best.f.fees ?? 0)) / best.f.points * 100 : null;
+      const cashNow = partyFare(sel.cash ?? 0, pax);
+      const fees = (best.f.fees ?? 0) * seats;
+      const save = Math.max(0, Math.round(cashNow - fees));
+      const cpp = cashNow && best.f.points ? (cashNow - fees) / (best.f.points * seats) * 100 : null;
       ops.push({
         kind: "flight", key, label, f: best.f, path: best.path, save, cpp,
         breaksRT: !!sel.roundTrip,
@@ -371,17 +453,17 @@ export default function App() {
     legOp("back", backLegD, fBack, `${route.outGw.gw} → ${retAir}`);
     hotelChoices.forEach((hc) => {
       if (hc.mode === "points" || !hc.hotel.pts || !hc.path) return;
-      const cashNow = (hc.hotel.cash ?? 0) * hc.nights;
+      const cashNow = (hc.hotel.cash ?? 0) * hc.nights * rooms;
       ops.push({
         kind: "hotel", key: hc.city, label: `${hc.hotel.name} · ${hc.nights} nt`,
         hotel: hc.hotel, nights: hc.nights, path: hc.path,
         save: Math.round(cashNow),
-        cpp: cashNow && hc.hotel.pts ? cashNow / (hc.hotel.pts * hc.nights) * 100 : null,
+        cpp: cashNow && hc.hotel.pts ? cashNow / (hc.hotel.pts * hc.nights * rooms) * 100 : null,
         apply: () => setHotelPay((p) => ({ ...p, [hc.city]: "points" })),
       });
     });
     return ops;
-  }, [route, fOut, fBack, outLegD, backLegD, cabinPref, balances, hotelChoices, depAir, retAir]);
+  }, [route, fOut, fBack, outLegD, backLegD, cabinPref, balances, hotelChoices, depAir, retAir, seats, rooms, pax]);
 
   // The chosen plan, resolved per booking — feeds the playbook and the share snapshot.
   const planFlights = useMemo(() => (route && fOut && fBack ? [
@@ -394,13 +476,8 @@ export default function App() {
   );
   const playbook = useMemo(() => {
     if (!ledger) return null;
-    const ground = route.legs.map((leg) => ({
-      fromName: cityById[leg.from].name, toName: cityById[leg.to].name,
-      fromAir: cityById[leg.from].air, toAir: cityById[leg.to].air,
-      date: schedule?.byCity[leg.from]?.checkOut ?? null, leg,
-    }));
-    return buildPlaybook({ flights: planFlights, hotels: planHotels, ground, jr });
-  }, [ledger, planFlights, planHotels, route, schedule, jr]);
+    return buildPlaybook({ flights: planFlights, hotels: planHotels, hops, jr, pax });
+  }, [ledger, planFlights, planHotels, hops, jr, pax]);
   // Ticks survive reloads for the same trip (same origin, stops and dates).
   const playbookKey = route ? `${originId}|${route.order.join(",")}|${departDate}` : "";
 
@@ -418,7 +495,7 @@ export default function App() {
       openJaw: route.inGw.gw !== route.outGw.gw, cabin: cabinPref,
       flights: planFlights,
       hotels: planHotels,
-      ledger, playbook,
+      ledger, playbook, pax, noReturn,
       days: days.map((d) => ({ ...d, date: schedule ? dateForDay(schedule, d.day) : null })),
     });
     const r = await shareItinerary(snap);
@@ -481,42 +558,67 @@ export default function App() {
 
   // The Meridian intake hands us a plotted trip; register its places (any
   // town on Earth) and let the engines take over.
-  const cityFromPlace = (rawName, countryName, lat, lon, iata) => {
+  const cityFromPlace = (rawName, countryName, lat, lon, iata, iso2 = null) => {
     const name = rawName.replace(/\s*\(.+\)$/, ""); // "Tokyo (13)" → "Tokyo" (atlas region suffix)
     const cur = searchCities(name).find((c) => Math.abs(c.lat - lat) < 1.4 && Math.abs(c.lon - lon) < 1.4);
     const city = cur ?? registerCity(makeCustomCity({ name, country: countryName, latitude: lat, longitude: lon }));
     if (iata && city.custom) city.air = iata; // real airport beats nearest-curated guess
+    if (iso2 && !city.iso2) city.iso2 = iso2;
     return city;
   };
+  /** Start over from any screen: clear the plan and reopen trip setup. */
+  const startOver = () => {
+    if (destIds.length && !window.confirm("Start a new trip? This plan stays in Trips → Resume last session.")) return;
+    setDestIds([]); setNights({}); setStartAt(null); setEndAt(null); setInGw(null); setOutGw(null);
+    setOriginAir(null); setHomeAir(null); setHotelPicks({}); setTourHotels({}); setHotelPay({});
+    setFlightSel({}); setFlightPay({ out: "points", back: "points" }); setLegVia({ out: null, back: null });
+    setIntakePicks({ out: null, back: null }); setHopModes({}); setTripType("round"); setPax({ ...DEFAULT_PAX });
+    setArriveLag(null); setRouteIdx(0); setStep(0); setIntakeKey((k) => k + 1);
+  };
   const handlePlottedTrip = (t) => {
-    const o = cityFromPlace(t.originCity.name, t.originCountry, t.originCity.lat, t.originCity.lon, t.originAirport.iata);
+    const type = t.tripType ?? "round";
+    const o = cityFromPlace(t.originCity.name, t.originCountry, t.originCity.lat, t.originCity.lon, t.originAirport.iata, t.originCity.iso2 ?? t.originAirport.iso2);
     setOriginId(o.id);
     setOriginAir(t.originAirport.iata);
-    setHomeAir(t.homeAirport.iata);
+    setTripType(type);
+    setPax({ ...DEFAULT_PAX, ...(t.pax ?? {}) });
+    setArriveLag(t.arriveLag ?? null);
+    if (t.flightView) setFlightView((v) => ({ ...v, ...t.flightView }));
     if (t.date) setDepartDate(t.date);
     const ids = [];
     const nn = {};
+    const idOf = {};
     t.stops.forEach((st) => {
-      const c = cityFromPlace(st.name, t.destCountry, st.lat, st.lon, st.iata);
+      const c = cityFromPlace(st.name, st.country ?? t.destCountry, st.lat, st.lon, st.iata, st.iso2);
       ids.push(c.id);
+      idOf[st.name] = c.id;
       nn[c.id] = st.nights;
     });
     setDestIds(ids);
     setNights((old) => ({ ...old, ...nn }));
-    const endIdx = t.stops.findIndex((st) => st.name === t.endCity);
-    setEndAt(ids[endIdx >= 0 ? endIdx : ids.length - 1] ?? null);
-    // Pin the two long-haul flights exactly as chosen on the map:
-    // land at the arrival airport (trip starts in that city), depart home
-    // from the end city's chosen airport.
+    // The trip starts in the landing city when it's a stop; one-way trips end
+    // where the traveler said; round trips are free to end anywhere (the ride
+    // back to the airport is a priced hop).
     const startIdx = t.stops.findIndex((st) => st.name === t.arrivalCity?.name);
     setStartAt(startIdx >= 0 ? ids[startIdx] : null);
+    const endIdx = type === "oneway" ? t.stops.findIndex((st) => st.name === t.endCity) : -1;
+    setEndAt(endIdx >= 0 ? ids[endIdx] : null);
     setInGw(t.arrivalAirport ? { iata: t.arrivalAirport.iata, lat: t.arrivalAirport.lat, lon: t.arrivalAirport.lon } : null);
-    setOutGw(t.endAirport ? { iata: t.endAirport.iata, lat: t.endAirport.lat, lon: t.endAirport.lon } : null);
+    const exitAp = type === "noreturn" ? null : t.endAirport ?? t.arrivalAirport;
+    setOutGw(exitAp ? { iata: exitAp.iata, lat: exitAp.lat, lon: exitAp.lon } : null);
+    setHomeAir(type === "noreturn" ? null : t.homeAirport?.iata ?? t.originAirport.iata);
+    // Between-cities picks arrive keyed by place names — re-key them by city id.
+    const hm = {};
+    Object.entries(t.hopModes ?? {}).forEach(([k, mode]) => {
+      const [x, y] = k.split(">");
+      const conv = (p) => (p.startsWith("@") ? p : idOf[p]);
+      if (conv(x) && conv(y)) hm[`${conv(x)}>${conv(y)}`] = mode;
+    });
+    setHopModes(hm);
     if (t.hotelPrefs) setHotelPrefs((p) => ({ ...p, ...t.hotelPrefs }));
     const hp = {}, th = {};
     Object.entries(t.hotelPicks ?? {}).forEach(([cityName, pick]) => {
-      const idx = t.stops.findIndex((st) => st.name === cityName);
-      const cid = idx >= 0 ? ids[idx] : null;
+      const cid = idOf[cityName] ?? null;
       if (!cid || !pick) return;
       if (typeof pick === "string") { hp[cid] = pick; return; }
       th[cid] = pick;
@@ -562,6 +664,13 @@ export default function App() {
             >
               <Wallet size={13} style={{ color: T.rail }} /> Points & preferences
             </button>
+            {step > 0 && (
+              <button
+                onClick={startOver}
+                className="px-3 py-1.5 rounded-full text-xs font-semibold"
+                style={{ border: `1px solid ${T.mist}`, color: T.inkSoft, background: T.card }}
+              >Start over</button>
+            )}
             <Chip tint={liveMode() ? T.pineTint : T.flightTint} color={liveMode() ? T.pine : T.flight}>
               {liveMode() ? "LIVE FARES CONNECTED" : "ESTIMATE MODE"}
             </Chip>
@@ -589,7 +698,7 @@ export default function App() {
         </div>
       </header>
 
-      <MeridianIntake hidden={step !== 0} initialDate={departDate} balances={balances} onComplete={handlePlottedTrip} />
+      <MeridianIntake key={intakeKey} skipIntro={intakeKey > 0} hidden={step !== 0} initialDate={departDate} balances={balances} onComplete={handlePlottedTrip} />
       {step === 0 && (
         <>
           <button
@@ -623,11 +732,12 @@ export default function App() {
           <div className="space-y-7">
             <div>
               <SectionLabel>
-                Optimized routes — top {results.top.length} of {permutations(destIds).length.toLocaleString()} scored
+                Your route{results.top.length > 1 ? ` · ${results.top.length - 1} better order${results.top.length > 2 ? "s" : ""} suggested` : ""} — {permutations(destIds).length.toLocaleString()} orders scored
               </SectionLabel>
               <div className="space-y-3">
                 {results.top.map((r, i) => {
-                  const savedMin = results.naive.totalMin - r.totalMin;
+                  const mine = results.mine;
+                  const savedMin = mine.totalMin - r.totalMin, savedUsd = mine.totalUsd - r.totalUsd;
                   return (
                     <button
                       key={i} onClick={() => { setRouteIdx(i); setFlightSel({}); }}
@@ -638,8 +748,9 @@ export default function App() {
                         <div className="flex items-center gap-2">
                           <span className="flex items-center justify-center rounded-full text-white text-xs font-bold" style={{ width: 22, height: 22, background: i === 0 ? T.rail : T.inkSoft }}>{i + 1}</span>
                           <span className="font-bold text-sm">
-                            {i === 0 ? "Recommended" : `Alternative ${i}`} · {r.inGw.gw} in / {r.outGw.gw} out{" "}
-                            {r.inGw.gw !== r.outGw.gw && <Chip tint={T.pineTint} color={T.pine}>open jaw</Chip>}
+                            {i === 0 ? "Your order" : `Suggested order ${i}`} · {r.inGw.gw} in{noReturn ? "" : ` / ${r.outGw.gw} out`}{" "}
+                            {i === 0 && results.bestIsMine && <Chip tint={T.pineTint} color={T.pine}>already the best order</Chip>}
+                            {!noReturn && r.inGw.gw !== r.outGw.gw && <Chip tint={T.pineTint} color={T.pine}>open jaw</Chip>}
                           </span>
                         </div>
                         <div className="flex gap-2 text-xs font-semibold" style={{ fontFamily: "'Jost', sans-serif" }}>
@@ -647,12 +758,11 @@ export default function App() {
                           <Chip tint={T.pineTint} color={T.pine}>{usd(r.totalUsd)} ground</Chip>
                         </div>
                       </div>
-                      <RouteSpine route={r} originId={originId} compact />
-                      {i === 0 && savedMin > 20 && (
+                      <RouteSpine route={r} originId={originId} compact noReturn={noReturn} hops={i === routeIdx ? hops : []} />
+                      {i > 0 && (savedMin > 20 || savedUsd > 25) && (
                         <p className="text-xs mt-2" style={{ color: T.pine }}>
-                          <b>Why this wins:</b> vs. your listed order as a round trip, this saves {hm(Math.max(savedMin, 0))} of
-                          ground travel{results.naive.totalUsd - r.totalUsd > 25 && <> and {usd(results.naive.totalUsd - r.totalUsd)}</>} —
-                          sequencing and gateway choice, not luck.
+                          <b>Less backtracking:</b> vs. your order this saves{savedMin > 20 && <> {hm(savedMin)} of ground travel</>}
+                          {savedMin > 20 && savedUsd > 25 && " and"}{savedUsd > 25 && <> {usd(savedUsd)}</>} — tap to use it.
                         </p>
                       )}
                     </button>
@@ -687,9 +797,23 @@ export default function App() {
                     </label>
                     {schedule && (
                       <span className="text-xs" style={{ color: T.inkSoft }}>
-                        Return lands on <b style={{ color: T.ink }}>{fmtDay(schedule.returnDate)}</b> — it follows your nights per stop, adjustable below.
+                        {noReturn ? "The trip ends" : "Return lands"} on <b style={{ color: T.ink }}>{fmtDay(schedule.returnDate)}</b> — it follows your nights per stop.
                       </span>
                     )}
+                  </div>
+                  <div className="md:col-span-2 flex items-center gap-x-4 gap-y-2 flex-wrap">
+                    <SectionLabel>Travelers</SectionLabel>
+                    {[["adults", "Adults", 1], ["children", "Children 2–11", 0], ["infants", "Infants on lap", 0]].map(([k, l, lo]) => (
+                      <span key={k} className="flex items-center gap-2 text-xs font-bold" style={{ color: T.inkSoft }}>
+                        {l}
+                        <NightsStepper n={pax[k]} setN={(v) => {
+                          const next = { ...pax, [k]: Math.max(lo, v) };
+                          if (next.adults + next.children + next.infants > 9 || next.infants > next.adults) return;
+                          setPax(next);
+                        }} min={lo} max={9} label={l.toLowerCase()} />
+                      </span>
+                    ))}
+                    <span className="text-xs" style={{ color: T.inkSoft }}>Prices cover everyone · {rooms} room{rooms !== 1 ? "s" : ""}</span>
                   </div>
                   <div className="space-y-2">
                     <SectionLabel>Outbound</SectionLabel>
@@ -697,12 +821,12 @@ export default function App() {
                     <AirportField label="Land at" value={route.inGw.gw} onPick={(a) => { if (a) { setInGw({ iata: a.iata, lat: a.lat, lon: a.lon }); setFlightSel({}); } }} />
                     <AirportField label="Connect via (optional)" value={legVia.out} allowClear onPick={(a) => { setLegVia({ ...legVia, out: a?.iata ?? null }); setFlightSel({}); }} />
                   </div>
-                  <div className="space-y-2">
+                  {!noReturn && <div className="space-y-2">
                     <SectionLabel>Return</SectionLabel>
                     <AirportField label="Depart from" value={route.outGw.gw} onPick={(a) => { if (a) { setOutGw({ iata: a.iata, lat: a.lat, lon: a.lon }); setFlightSel({}); } }} />
                     <AirportField label="Land at" value={retAir} onPick={(a) => { if (a) { setHomeAir(a.iata); setFlightSel({}); } }} />
                     <AirportField label="Connect via (optional)" value={legVia.back} allowClear onPick={(a) => { setLegVia({ ...legVia, back: a?.iata ?? null }); setFlightSel({}); }} />
-                  </div>
+                  </div>}
                   <p className="text-xs md:col-span-2" style={{ color: T.inkSoft }}>
                     Changing the date or an airport re-prices everything live — flights, award space, hotels — no need to
                     re-plot the map. Setting <b>connect via</b> makes the system build and price an itinerary through that
@@ -723,26 +847,52 @@ export default function App() {
               </div>
             )}
 
-            <TripRouteMap legs={[{ from: depAir, to: route.inGw.gw }, { from: route.outGw.gw, to: retAir }]} />
+            <TripRouteMap legs={noReturn ? [{ from: depAir, to: route.inGw.gw }] : [{ from: depAir, to: route.inGw.gw }, { from: route.outGw.gw, to: retAir }]} />
+
+            {/* Google Flights-style controls, shared by both legs */}
+            <div className="flex flex-wrap items-center gap-2 rounded-xl px-4 py-3" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+              <span className="text-xs font-bold" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase" }}>Sort</span>
+              {SORTS.map(([k, l]) => (
+                <button key={k} onClick={() => setFlightView({ ...flightView, sort: k })} className="px-2.5 py-1 rounded-full text-xs font-semibold"
+                  style={{ background: flightView.sort === k ? T.ink : T.paper, color: flightView.sort === k ? T.paper : T.inkSoft, border: `1px solid ${flightView.sort === k ? T.ink : T.mist}` }}>{l}</button>
+              ))}
+              <select aria-label="Number of stops" value={flightView.stops} onChange={(e) => setFlightView({ ...flightView, stops: e.target.value })}
+                className="px-2 py-1 rounded-lg text-xs font-semibold" style={{ border: `1px solid ${T.mist}`, background: T.paper, color: T.ink }}>
+                {STOP_CAPS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+              <label className="flex items-center gap-1.5 text-xs" style={{ color: T.ink }}>
+                <input type="checkbox" checked={!!flightView.hideSep} onChange={(e) => setFlightView({ ...flightView, hideSep: e.target.checked })} />
+                Protected connections only
+              </label>
+              <label className="flex items-center gap-1.5 text-xs" style={{ color: T.ink }}>
+                <input type="checkbox" checked={flightView.overnight !== false} onChange={(e) => setFlightView({ ...flightView, overnight: e.target.checked })} />
+                Overnight layovers OK
+              </label>
+              <span className="text-xs ml-auto" style={{ color: T.inkSoft }}>Prices for {paxText(pax)}</span>
+            </div>
 
             {/* Long-haul flights with funding paths */}
-            <div className="grid md:grid-cols-2 gap-5">
+            <div className={`grid gap-5 ${noReturn ? "" : "md:grid-cols-2"}`}>
               {[
                 { key: "out", dir: `Outbound · ${depAir} → ${route.inGw.gw} · ${fmtDay(departDate)}`, leg: outLegD, sel: outId, loading: liveOut.loading || awardsOut.loading, lf: depAir, lt: route.inGw.gw, ld: departDate },
-                { key: "back", dir: `Return · ${route.outGw.gw} → ${retAir}${schedule ? ` · ${fmtDay(schedule.returnDate)}` : ""}`, leg: backLegD, sel: backId, loading: liveBack.loading || awardsBack.loading, lf: route.outGw.gw, lt: retAir, ld: schedule?.returnDate },
+                ...(noReturn ? [] : [{ key: "back", dir: `Return · ${route.outGw.gw} → ${retAir}${schedule ? ` · ${fmtDay(schedule.returnDate)}` : ""}`, leg: backLegD, sel: backId, loading: liveBack.loading || awardsBack.loading, lf: route.outGw.gw, lt: retAir, ld: schedule?.returnDate }]),
               ].map(({ key, dir, leg, sel, loading, lf, lt, ld }) => {
                 // Points-only hides cash rows — but never at the cost of a dead
                 // end. A leg with no fundable award falls back to every way of
                 // getting there, including connections the system built itself.
-                const hasAward = leg.options.some((f) => f.points && bestPath(f.programId, f.points, balances));
+                const hasAward = leg.options.some((f) => f.points && bestPath(f.programId, f.points * seats, balances));
                 const visible = leg.options.filter((f) => {
                   if (f.cabin !== cabinPref && !f.cashOnly) return false;
-                  if (pointsOnly && hasAward) return f.points && bestPath(f.programId, f.points, balances);
+                  if (pointsOnly && hasAward) return f.points && bestPath(f.programId, f.points * seats, balances);
                   return true;
                 });
                 const shownRaw = visible.length ? visible : leg.options.filter((f) => f.cabin === cabinPref);
-                // Cash-first ordering: real fares lead; award rows follow.
-                const shown = pointsOnly ? shownRaw : [...shownRaw.filter((f) => !f.points), ...shownRaw.filter((f) => f.points)];
+                // Filters + sort (cash-first: real fares lead, award rows follow);
+                // the picked flight always stays visible.
+                const viewed = applyFlightView(shownRaw, flightView);
+                const pickedRow = shownRaw.find((f) => f.id === sel);
+                const shown = pickedRow && !viewed.includes(pickedRow) ? [...viewed, pickedRow] : viewed;
+                const filteredOut = shownRaw.length - viewed.length;
                 const actualsOnly = liveMode() && !showEst[key];
                 // Collapse long lists behind a "more options" expander; the
                 // selected flight is always kept visible even while collapsed.
@@ -980,11 +1130,15 @@ export default function App() {
                             <div className="flex items-center justify-between mt-2 flex-wrap gap-1">
                               {f.points ? (
                                 <div className="text-sm font-bold" style={{ fontFamily: "'Jost', sans-serif" }}>
-                                  {(f.points / 1000).toFixed(0)}K{" "}
-                                  <span className="text-xs font-normal" style={{ color: T.inkSoft }}>{SOURCES[f.programId].short} + {usd(f.fees)}</span>
+                                  {(f.points * seats / 1000).toFixed(0)}K{" "}
+                                  <span className="text-xs font-normal" style={{ color: T.inkSoft }}>{SOURCES[f.programId].short} + {usd((f.fees ?? 0) * seats)}{seats > 1 ? ` · ${seats} seats` : ""}</span>
+                                  {f.seats != null && f.seats < seats && <span className="text-xs font-normal" style={{ color: T.flight }}> · only {f.seats} left</span>}
                                 </div>
                               ) : (
-                                <div className="text-sm font-bold" style={{ fontFamily: "'Jost', sans-serif" }}>{usd(f.cash)}</div>
+                                <div className="text-sm font-bold" style={{ fontFamily: "'Jost', sans-serif" }}>
+                                  {usd(partyFare(f.cash, pax))}
+                                  {(seats > 1 || pax.infants > 0) && <span className="text-xs font-normal" style={{ color: T.inkSoft }}> · {usd(f.cash)} per person</span>}
+                                </div>
                               )}
                               <div className="flex gap-1.5">
                                 {f.points && f.cash != null && <Chip tint={T.pineTint} color={T.pine}>{cpp(f)}¢/pt{f.liveCash ? " · live" : ""}</Chip>}
@@ -1016,6 +1170,12 @@ export default function App() {
                         );
                       })}
                     </div>
+                    {filteredOut > 0 && (
+                      <p className="text-xs mt-2" style={{ color: T.inkSoft }}>
+                        {filteredOut} option{filteredOut !== 1 ? "s" : ""} hidden by your filters{" "}
+                        <button className="font-bold underline" style={{ color: T.flight }} onClick={() => setFlightView({ ...flightView, stops: "any", hideSep: false, overnight: true, avoid: "" })}>show all</button>
+                      </p>
+                    )}
                     {shown.length > cut && (expandedFl || shown.length > flList.length) && (
                       <button
                         onClick={() => setShowAllFl({ ...showAllFl, [key]: !showAllFl[key] })}
@@ -1031,6 +1191,59 @@ export default function App() {
                 );
               })}
             </div>
+
+            {/* Between cities: every mode for every hop, priced for the party */}
+            {hops.length > 0 && (
+              <div>
+                <SectionLabel>Between cities — every way to get there</SectionLabel>
+                <p className="text-xs mb-3" style={{ color: T.inkSoft, maxWidth: "75ch" }}>
+                  Prices for {paxText(pax)}. Estimates until live rail, bus and ferry fares are connected — each hop links to live times and prices.
+                </p>
+                <div className="space-y-3">
+                  {hops.map((h) => (
+                    <div key={h.key} className="rounded-xl p-4 rise" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
+                      <div className="flex items-baseline justify-between gap-2 flex-wrap mb-2">
+                        <span className="font-bold text-sm">{h.a.name} → {h.b.name}</span>
+                        <span className="text-xs" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>
+                          {h.km.toLocaleString()} km{h.date ? ` · ${fmtShort(h.date)}` : ""}{h.overWater ? " · sea crossing" : ""}
+                        </span>
+                      </div>
+                      {h.options.length ? (
+                        <div className="flex flex-wrap gap-2">
+                          {h.options.map((o) => {
+                            const on = h.choice?.id === o.id;
+                            return (
+                              <button key={o.id} onClick={() => setHopModes((m) => ({ ...m, [h.key]: o.id }))}
+                                className="text-left rounded-lg px-3 py-2"
+                                style={{ minWidth: 132, background: on ? T.paper : "transparent", border: `1.5px solid ${on ? T.gold : T.mist}` }}>
+                                <div className="text-xs font-bold flex items-center gap-1.5">
+                                  <span aria-hidden>{o.icon}</span>{o.label}
+                                  {on && <Check size={12} style={{ color: T.gold }} />}
+                                </div>
+                                <div className="text-xs mt-0.5" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>
+                                  {fmtMin(o.min)} · {usd(o.total)}{o.perVehicle ? (o.vehicles > 1 ? ` · ${o.vehicles} cars` : " · per car") : ""}
+                                </div>
+                                {o.tags?.length > 0 && (
+                                  <div className="text-[10px] font-bold uppercase mt-1" style={{ color: o.tags.includes("best") ? T.pine : T.gold, letterSpacing: "0.08em" }}>{o.tags.join(" · ")}</div>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-xs" style={{ color: T.inkSoft }}>No practical option found — check Rome2rio for this one.</p>
+                      )}
+                      {h.choice && (
+                        <p className="text-xs mt-2" style={{ color: T.inkSoft }}>
+                          {h.choice.svc}{h.choice.note ? ` — ${h.choice.note}` : ""}
+                          {h.choice.link && <> · <a href={h.choice.link} target="_blank" rel="noreferrer" className="font-bold underline" style={{ color: T.flight }}>Live times & prices ↗</a></>}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {jr && (
               <div className="rounded-xl p-4 flex items-start gap-3" style={{ background: jr.worthIt ? T.pineTint : T.card, border: `1px solid ${jr.worthIt ? T.pine : T.mist}` }}>
@@ -1064,15 +1277,16 @@ export default function App() {
                   {days.length} days · {origin.name} → {route.order.map((c) => cityById[c].name).join(" → ")}
                 </h2>
                 <span className="text-xs opacity-70" style={{ fontFamily: "'Jost', sans-serif" }}>
-                  {fmtShort(departDate)} – {schedule ? fmtShort(schedule.returnDate) : ""} · {route.inGw.gw} IN · {route.outGw.gw} OUT{route.inGw.gw !== route.outGw.gw && " · OPEN JAW"}
+                  {fmtShort(departDate)} – {schedule ? fmtShort(schedule.returnDate) : ""} · {paxText(pax).toUpperCase()} · {route.inGw.gw} IN{noReturn ? " · ONE-WAY, NO RETURN" : <> · {route.outGw.gw} OUT{route.inGw.gw !== route.outGw.gw && " · OPEN JAW"}</>}
                 </span>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4">
                 {[
                   ["Cash out of pocket", ledger.cash, usd],
-                  ["Full retail value", ledger.retail, usd],
-                  ["You save", Math.max(0, ledger.retail - ledger.cash), usd],
+                  [`Per person · ${peopleOf(pax)}`, ledger.cash / Math.max(1, peopleOf(pax)), usd],
+                  [`Per day · ${days.length}`, ledger.cash / Math.max(1, days.length), usd],
                   ["Points deployed", Object.values(ledger.usage).reduce((a, b) => a + b, 0), (v) => `${(v / 1000).toFixed(0)}K total`],
+                  ["Points save you", Math.max(0, ledger.retail - ledger.cash), usd],
                 ].map(([k, v, fmt]) => (
                   <div key={k}>
                     <div className="text-xs opacity-60">{k}</div>
@@ -1117,10 +1331,10 @@ export default function App() {
             <div>
               <SectionLabel>The journey</SectionLabel>
               <div className="rounded-xl p-4 mb-4" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
-                <RouteSpine route={route} originId={originId} />
+                <RouteSpine route={route} originId={originId} hops={hops} noReturn={noReturn} />
               </div>
-              <div className="mb-4"><TripRouteMap legs={[{ from: depAir, to: route.inGw.gw }, { from: route.outGw.gw, to: retAir }]} height={300} /></div>
-              <JourneyMap route={route} originId={originId} />
+              <div className="mb-4"><TripRouteMap legs={noReturn ? [{ from: depAir, to: route.inGw.gw }] : [{ from: depAir, to: route.inGw.gw }, { from: route.outGw.gw, to: retAir }]} height={300} /></div>
+              <JourneyMap route={route} originId={originId} hops={hops} noReturn={noReturn} />
             </div>
 
             {/* Hotels */}
@@ -1186,7 +1400,7 @@ export default function App() {
                         {hotels.map((h, hi) => {
                           const chosen = chosenName === h.name.toLowerCase();
                           const n = nights[cid] ?? 2;
-                          const path = h.pts ? bestPath(h.pid, h.pts * n, balances) : null;
+                          const path = h.pts ? bestPath(h.pid, h.pts * n * rooms, balances) : null;
                           return (
                             <button
                               key={h.name}
@@ -1256,6 +1470,38 @@ export default function App() {
                   <span className="text-sm font-bold">Cash total: <span style={{ fontFamily: "'Jost', sans-serif" }}>{usd(ledger.cash)}</span></span>
                   <span className="text-sm" style={{ color: T.inkSoft }}>Retail value: {usd(ledger.retail)}</span>
                   <span className="text-sm font-bold" style={{ color: T.pine }}>Points save you {usd(Math.max(0, ledger.retail - ledger.cash))}</span>
+                  <span className="text-xs w-full" style={{ color: T.inkSoft }}>
+                    {pricedAt ? `Live fares as of ${new Date(pricedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Fares not yet checked live"}
+                    {" "}· fares and room rates include taxes and fees · lines marked est. are estimates
+                    {liveMode() && <> · <button onClick={recheckPrices} className="font-bold underline" style={{ color: T.flight }}>Re-check prices before booking</button></>}
+                  </span>
+                </div>
+              </div>
+
+              {/* Where the money goes, stop by stop */}
+              <div className="mt-4">
+                <SectionLabel>By city</SectionLabel>
+                <div className="rounded-xl overflow-x-auto" style={{ border: `1px solid ${T.mist}` }}>
+                  <table className="w-full text-sm" style={{ borderCollapse: "collapse", minWidth: 480 }}>
+                    <thead>
+                      <tr style={{ background: T.paper, color: T.inkSoft }}>
+                        {["City", "Nights", "Hotel", "Getting there", "Total"].map((h, i) => (
+                          <th key={h} className="text-xs font-bold px-4 py-2" style={{ textAlign: i ? "right" : "left", fontFamily: "'Jost', sans-serif", letterSpacing: "0.06em", textTransform: "uppercase", fontSize: 10 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {byCity.map((r) => (
+                        <tr key={r.cid} style={{ background: T.card, borderTop: `1px solid ${T.mist}` }}>
+                          <td className="px-4 py-2 font-semibold">{r.name}</td>
+                          <td className="px-4 py-2 text-right">{r.nights}</td>
+                          <td className="px-4 py-2 text-right" style={{ fontFamily: "'Jost', sans-serif" }}>{r.hotelLabel}</td>
+                          <td className="px-4 py-2 text-right" style={{ fontFamily: "'Jost', sans-serif" }}>{r.inLabel}</td>
+                          <td className="px-4 py-2 text-right font-bold" style={{ fontFamily: "'Jost', sans-serif" }}>{usd(r.cash)}{r.pts ? ` + ${(r.pts / 1000).toFixed(0)}K pts` : ""}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
 

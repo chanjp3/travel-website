@@ -23,7 +23,7 @@ function payText(p) {
   if (p.kind === "included") return "Included in the round-trip fare";
   if (p.kind === "points") return `${kpts(p.points)} ${p.source ?? "points"}${p.transfer && p.program ? ` → ${p.program}` : ""} + ${usd(p.fees)} taxes`;
   if (p.kind === "miles") return `${kpts(p.points)} ${p.program ?? ""} miles + ${usd(p.fees)} taxes`;
-  if (p.nightly != null) return `${usd(p.nightly)}/night · ${usd(p.total)} total`;
+  if (p.nightly != null) return `${usd(p.nightly)}/night${p.rooms > 1 ? ` (${p.rooms} rooms)` : ""} · ${usd(p.total)} total`;
   return `${usd(p.cash)}${p.roundTrip && p.rtTotal ? ` · half of the ${usd(p.rtTotal)} round-trip fare` : ""}`;
 }
 
@@ -133,7 +133,7 @@ function render(s) {
     <header class="sh-head">
       <div class="sh-kick">Meridian · Itinerary</div>
       <h1>${esc(s.title)}</h1>
-      <div class="sh-dates">${esc(day(s.departDate))}${s.returnDate ? ` – ${esc(day(s.returnDate))}` : ""} · ${esc(nights)} nights${s.cabin ? ` · ${esc(s.cabin)}` : ""}${s.openJaw ? " · open jaw" : ""}</div>
+      <div class="sh-dates">${esc(day(s.departDate))}${s.returnDate ? ` – ${esc(day(s.returnDate))}` : ""} · ${esc(nights)} nights${s.travelers ? ` · ${esc(s.travelers)}` : ""}${s.cabin ? ` · ${esc(s.cabin)}` : ""}${s.noReturn ? " · one-way, no return" : s.openJaw ? " · open jaw" : ""}</div>
       <div class="sh-actions">
         <button id="shPrint" type="button">Print / save PDF</button>
         <a href="/">Plan your own on Meridian ↗</a>

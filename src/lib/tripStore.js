@@ -26,6 +26,8 @@ export function serializeTrip(s) {
     hotelPrefs: s.hotelPrefs,
     cabinPref: s.cabinPref, pointsOnly: s.pointsOnly, wCost: s.wCost,
     balances: s.balances,
+    tripType: s.tripType ?? "round", pax: s.pax ?? null, arriveLag: s.arriveLag ?? null,
+    hopModes: s.hopModes ?? {}, flightView: s.flightView ?? null,
   };
 }
 

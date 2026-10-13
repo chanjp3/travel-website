@@ -54,18 +54,19 @@ function endGateway(cityId, originCity) {
   return { gw: c.air, min: 45, usd: 15 }; // own airport, nominal local transfer
 }
 
-export function scoreRoutes(cityIds, wCost, originId, { endAt, startAt, inGw: gwIn, outGw: gwOut } = {}) {
+export function scoreRoutes(cityIds, wCost, originId, { endAt, startAt, inGw: gwIn, outGw: gwOut, fixedOrder = null } = {}) {
   const wTime = 1 - wCost;
   const origin = cityById[originId];
   // startAt/endAt pin the first/last stop (where you land / where the trip
   // ends); the orderings in between still compete. Ending where you landed
   // (land Tokyo → loop → fly home from Tokyo) is one pin, not two: the
   // forced exit gateway handles the ride back to that airport.
-  let perms = permutations(cityIds);
-  if (startAt && cityIds.includes(startAt) && cityIds.length > 1) {
+  // fixedOrder scores exactly the traveler's own sequence (no reordering)
+  let perms = fixedOrder ? [fixedOrder] : permutations(cityIds);
+  if (!fixedOrder && startAt && cityIds.includes(startAt) && cityIds.length > 1) {
     perms = perms.filter((p) => p[0] === startAt);
   }
-  if (endAt && endAt !== startAt && cityIds.includes(endAt) && cityIds.length > 1) {
+  if (!fixedOrder && endAt && endAt !== startAt && cityIds.includes(endAt) && cityIds.length > 1) {
     perms = perms.filter((p) => p[p.length - 1] === endAt);
   }
   if (!perms.length) perms = permutations(cityIds); // never zero routes
@@ -79,6 +80,8 @@ export function scoreRoutes(cityIds, wCost, originId, { endAt, startAt, inGw: gw
     const acc = c.pack === "japan" ? jp.access[cityId]?.[gw.iata] : null;
     if (acc) return { gw: gw.iata, min: acc.min, usd: acc.yen / 150, yen: acc.yen };
     const d = gw.lat != null ? km(c, gw) : 80;
+    // A far-off gateway (fly home from Tokyo after Seoul) is a flight, not a drive.
+    if (d > 300) return { gw: gw.iata, min: flightMin(d) + 150, usd: cashEst(d, "Economy") };
     return { gw: gw.iata, min: Math.round(35 + (d / 70) * 60), usd: Math.round(6 + d * 0.18) };
   };
 

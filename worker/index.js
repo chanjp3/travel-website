@@ -209,6 +209,7 @@ async function serpFlights(env, q, gate = async () => true) {
             from: s.departure_airport?.id, to: s.arrival_airport?.id,
             dep: toISO(s.departure_airport?.time), arr: toISO(s.arrival_airport?.time),
             carrier: m ? m[1] : (s.airline ?? ""), num: m ? m[2] : (s.flight_number ?? ""),
+            aircraft: s.airplane ?? null,
           };
         }),
       }],
@@ -299,9 +300,10 @@ function localISO(epochMs, offset) {
 }
 
 /** Stitch per-hub leg fares into ranked self-transfer itineraries.
- *  Exported for tests. Layover window: ≥2h (bags must be recollected),
+ *  Exported for tests. Layover window: ≥3h by default (bags must be
+ *  recollected and re-checked; the traveler can ask for more via minLay),
  *  ≤26h (allows a next-morning second leg, flagged as overnight). */
-export function synthesizeConnections(hubLegs, { minLayoverMin = 120, maxLayoverMin = 26 * 60 } = {}) {
+export function synthesizeConnections(hubLegs, { minLayoverMin = 180, maxLayoverMin = 26 * 60 } = {}) {
   const usable = (list) => (list ?? []).filter(
     (o) => o.price > 0 && o.durMin && o.itineraries?.[0]?.segments?.[0]?.dep
   );
@@ -364,7 +366,8 @@ async function connectionOffers(env, q) {
       return { hub, leg1, leg2: [...leg2a, ...leg2b] };
     })));
   }
-  return synthesizeConnections(hubLegs);
+  const minLay = Math.min(12 * 60, Math.max(90, +q.minLay || 180));
+  return synthesizeConnections(hubLegs, { minLayoverMin: minLay });
 }
 
 /* ── Seats.aero award search ────────────────────────────────────────────── */
@@ -720,6 +723,14 @@ async function handle(req, env, ctx) {
           // A user-forced layover still builds through the chosen hub too.
           if (q.force && q.via && env.TRAVELPAYOUTS_TOKEN) {
             return json([...real, ...(await connectionOffers(env, q))]);
+          }
+          // Mixed-airline routing: separate one-way tickets through a hub,
+          // kept only when they beat the cheapest single ticket by 5%+.
+          // Cached fares are economy, so premium cabins skip this.
+          if (q.mix && q.via && env.TRAVELPAYOUTS_TOKEN && (q.cabin ?? "ECONOMY") === "ECONOMY") {
+            const floor = Math.min(...real.map((o) => o.price));
+            const built = (await connectionOffers(env, q).catch(() => [])).filter((o) => o.price < floor * 0.95);
+            return json([...real, ...built]);
           }
           return json(real);
         }

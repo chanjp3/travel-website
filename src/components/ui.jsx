@@ -16,12 +16,12 @@ export const SectionLabel = ({ children }) => (
   </div>
 );
 
-export function NightsStepper({ n, setN }) {
+export function NightsStepper({ n, setN, min = 1, max = 7, label = "" }) {
   return (
     <span className="inline-flex items-center rounded-lg overflow-hidden" style={{ border: `1px solid ${T.mist}` }}>
-      <button onClick={() => setN(Math.max(1, n - 1))} className="px-2 py-1 font-bold" style={{ background: T.paper }}>−</button>
+      <button onClick={() => setN(Math.max(min, n - 1))} aria-label={`Fewer ${label}`.trim()} className="px-2 py-1 font-bold" style={{ background: T.paper }}>−</button>
       <span className="px-2.5 py-1 font-bold" style={{ background: T.card, fontFamily: "'Jost', sans-serif" }}>{n}</span>
-      <button onClick={() => setN(Math.min(7, n + 1))} className="px-2 py-1 font-bold" style={{ background: T.paper }}>+</button>
+      <button onClick={() => setN(Math.min(max, n + 1))} aria-label={`More ${label}`.trim()} className="px-2 py-1 font-bold" style={{ background: T.paper }}>+</button>
     </span>
   );
 }

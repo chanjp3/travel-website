@@ -169,13 +169,18 @@ const cabinCode = (cabin) =>
   : "ECONOMY";
 
 /** `viaHub`: a user-chosen layover airport — the worker then ALWAYS builds
- *  a connection through it (force=1), alongside whatever the cache has. */
-export const liveFlights = (from, to, date, cabin, ret = null, viaHub = null) =>
+ *  a connection through it (force=1), alongside whatever the cache has.
+ *  `minLay` (minutes) sets the shortest layover allowed when stitching
+ *  separate tickets; `mix` asks for separate-ticket plans next to live
+ *  results whenever they're cheaper. */
+export const liveFlights = (from, to, date, cabin, ret = null, viaHub = null, { minLay = null, mix = true } = {}) =>
   get("/api/flights", {
     from, to, date, ret,
     cabin: cabinCode(cabin),
     via: viaHub ?? (connectionHubs(from, to).join(",") || null),
     force: viaHub ? 1 : null,
+    minLay: minLay && minLay !== 180 ? minLay : null,
+    mix: mix ? 1 : null,
     deep: 1, // a real leg lookup — worth spending metered live-search quota
   }, 25000);
 

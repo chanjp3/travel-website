@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { mountMeridian } from "../atlas/meridianIntake.js";
 
 /** React shell around the d3-driven Meridian map intake. */
-export function MeridianIntake({ initialDate, onComplete, balances, hidden = false }) {
+export function MeridianIntake({ initialDate, onComplete, balances, hidden = false, skipIntro = false }) {
   const holder = useRef(null);
   const cb = useRef(onComplete);
   cb.current = onComplete;
@@ -14,6 +14,7 @@ export function MeridianIntake({ initialDate, onComplete, balances, hidden = fal
       initialDate,
       onComplete: (trip) => cb.current?.(trip),
       getBalances: () => bal.current,
+      skipIntro,
     });
   }, []);
 

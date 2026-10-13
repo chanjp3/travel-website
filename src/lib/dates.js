@@ -29,9 +29,10 @@ export function defaultDepart() {
  * `outboundMin` (long-haul block time) decides whether arrival lands next
  * day — >8h eastbound legs essentially always do once TZ/date line hit.
  */
-export function buildSchedule(route, nights, departISO, outboundMin) {
+export function buildSchedule(route, nights, departISO, outboundMin, lagDays = null) {
   if (!route || !departISO) return null;
-  const lag = outboundMin != null && outboundMin > 480 ? 1 : 0;
+  // the real arrival day when the chosen flight is known (date line, red-eyes)
+  const lag = lagDays != null ? lagDays : outboundMin != null && outboundMin > 480 ? 1 : 0;
   let cursor = addDays(departISO, lag);
   const cities = route.order.map((cid) => {
     const n = nights[cid] ?? 2;

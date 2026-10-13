@@ -351,3 +351,43 @@
 @keyframes introUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
 @keyframes introTrack{from{opacity:0;letter-spacing:.7em;filter:blur(6px)}to{opacity:1;letter-spacing:.3em;filter:none}}
 #intro.hide #introGlobe{transform:translateX(-50%) translateY(14vmin) scale(1.06);transition:transform 1s ease,opacity .8s}
+
+/* ---------- trip setup + flow controls ---------- */
+.hint.sm{font-size:11.5px;margin:6px 0 0}
+.seg{display:flex;border:1px solid var(--hair);border-radius:2px;overflow:hidden}
+.seg button{flex:1;font-family:var(--mono);font-weight:500;font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;
+  padding:9px 6px;background:none;border:none;border-right:1px solid var(--hair);color:var(--ink-soft);cursor:pointer;transition:all .25s}
+.seg button:last-child{border-right:none}
+.seg button:hover{color:var(--route)}
+.seg button.on{background:var(--ink);color:#F4EFE6}
+.paxrow{display:flex;flex-direction:column;gap:6px}
+.pax{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 10px;border:1px solid var(--hair);border-radius:2px;background:rgba(27,23,20,.025)}
+.pax .pl{font-size:13px;font-weight:300}
+.pax .pl em{font-style:normal;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;color:var(--ink-faint);margin-left:8px;text-transform:uppercase}
+.apchips,.ccchips{display:flex;flex-wrap:wrap;gap:5px;margin:-4px 0 10px;align-items:center}
+.apchip{display:inline-flex;gap:6px;align-items:baseline;font-family:var(--mono);font-weight:500;font-size:10.5px;letter-spacing:.12em;
+  padding:5px 9px;border:1px solid var(--hair);border-radius:2px;background:none;color:var(--ink);cursor:pointer;transition:all .25s}
+.apchip span{font-family:var(--body);font-weight:300;font-size:10.5px;letter-spacing:.02em;color:var(--ink-soft);
+  max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.apchip:hover{border-color:var(--route)}
+.apchip.on{background:var(--ink);color:#F4EFE6;border-color:var(--ink)}
+.apchip.on span{color:#DDD4C7}
+.ccchips{margin:0 0 6px}
+.ccnote{font-size:10.5px;color:var(--ink-faint);font-weight:300}
+.stoprow .stp{gap:3px}
+.stoprow .stp button{width:21px;height:21px;font-size:11px}
+.stoprow .stp button:disabled{opacity:.25;cursor:default;box-shadow:none}
+.fbar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.fbar .tsel{max-width:none}
+.fmore-btn{font-family:var(--mono);font-weight:500;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-soft);
+  background:none;border:1px dashed var(--hair);border-radius:2px;padding:6px 9px;cursor:pointer}
+.fmore-btn:hover{border-color:var(--route);color:var(--route)}
+.fmore{border:1px solid var(--hair);border-radius:2px;padding:10px 12px 4px;margin-bottom:10px;background:rgba(27,23,20,.02)}
+.tchk{display:flex;gap:8px;align-items:flex-start;font-size:12px;font-weight:300;color:var(--ink);margin-bottom:8px;cursor:pointer;line-height:1.4}
+.tchk input{margin-top:2px;accent-color:#1B1714}
+.tline{display:flex;gap:8px;align-items:center;font-size:12px;font-weight:300;margin-bottom:8px}
+.f-per{font-family:var(--mono);font-size:9.5px;color:var(--ink-soft);text-align:right;margin-top:2px}
+.f-warn{font-size:11px;line-height:1.5;color:#7A2331;margin-top:8px;font-weight:300}
+.f-warn b{color:var(--ok);font-weight:500}
+.leg .modes .mode{min-width:120px}
+.leg .mode .best{white-space:nowrap;left:8px;right:auto;max-width:calc(100% - 16px);overflow:hidden;text-overflow:ellipsis}
