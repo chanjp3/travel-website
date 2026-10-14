@@ -75,9 +75,23 @@ onto `main` and force-pushed. It carried commit `96d1094`:
   secret: …"); if none appears, the change was not deployed.
 
 ## Testing
-Browser suites live in an earlier session's scratchpad, not the repo
+`npm test` runs everything from `tests/` (see `tests/README.md`): the
+`fares-unit` and `worker-go` Node suites, then a build into `dist-test/`
+with `VITE_API_BASE=http://localhost:8788`, then the Playwright suites
 (flow-e2e, mobile-e2e, tour-layers, playbook-ui, share-ui, watch-ui,
-limit-ui, omio-e2e, fares-unit, worker-go). They used Playwright against
-`npx vite build` + `npx vite preview --port 4174` with
-`VITE_API_BASE=http://localhost:8788` and mocked API routes. Rebuild them
-in `tests/` if needed; all passed at commit `96d1094`.
+limit-ui, omio-e2e) against `vite preview --port 4174`. The worker is
+mocked with `page.route` (`tests/e2e/helpers/mockApi.mjs`); nothing
+reaches a real provider or partner. First run on a machine:
+`npx playwright install chromium`.
+
+Two things the suites found, left for a product change:
+- Leaving a city's hotel tour (Continue / Skip tour) does not cancel that
+  city's background work (`tourSeq` is not bumped on the way out in
+  `stepCityTour`), so a late attraction geocode or the street map's
+  550 ms view-change check re-renders the hotel card over the next step.
+  The tests wait for the tour to settle (`tourSettled` in
+  `tests/e2e/helpers/intake.mjs`) instead of racing it.
+- On a phone the itinerary's hotel filter bar ("Group" row, seven chips)
+  does not wrap, so the page scrolls sideways by ~60 px. Recorded as an
+  expected failure in `mobile-e2e`; once it wraps, that test reports
+  "expected to fail but passed" and the mark can go.
