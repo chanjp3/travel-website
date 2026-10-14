@@ -179,9 +179,11 @@ const GROUND_HOW = {
   car: (h) => [`Book a one-way rental from ${h.a.name} to ${h.b.name}${on(h.date)}.`, "Compare the one-way drop fee; bring an International Driving Permit where it's required."],
   private: (h) => [`Book a private transfer from ${h.a.name} to ${h.b.name}${on(h.date)} — confirm the price is per car, with luggage.`],
 };
-function groundStep(h, jrPass) {
+function groundStep(h, jrPass, pax, linkFor) {
   const ch = h.choice;
   if (!ch) return null;
+  const seats = seatsOf(pax);
+  const pub = ch.est === false && ch.fare; // a published fare — real, not an estimate
   const base = { kind: ch.mode === "flight" ? "flight" : "ground", title: `${h.a.name} → ${h.b.name}`, date: h.date, sub: `${ch.label}${ch.svc ? ` · ${ch.svc}` : ""}` };
   if (jrPass && ch.id === "rail" && ch.jr !== undefined && ch.jr !== false) {
     return {
@@ -191,16 +193,22 @@ function groundStep(h, jrPass) {
     };
   }
   const japanRail = ch.id === "rail" && ch.jr !== undefined;
+  const book = ch.book ? { label: ch.book.partner ? `Book on ${ch.book.label}` : ch.book.label, url: linkFor(ch.book), ...(ch.book.partner ? { sponsored: true } : {}) } : null;
   return {
     ...base, rank: 4, pay: "cash", price: usd(ch.total),
-    priceSub: [ch.perVehicle ? (ch.vehicles > 1 ? `${ch.vehicles} cars` : "per car") : null, "estimate"].filter(Boolean).join(" · "),
+    priceSub: pub
+      ? `${ch.fare.symbol}${(ch.fare.local * seats).toLocaleString("en-US")} published fare`
+      : [ch.perVehicle ? (ch.vehicles > 1 ? `${ch.vehicles} cars` : "per car") : null, "estimate"].filter(Boolean).join(" · "),
     how: japanRail
       ? ["Book Shinkansen seats online (Tokaido/Sanyo lines via smartEX) or buy at the station on the day.", "Reserved seats sell out in peak weeks (Golden Week, Obon, New Year) — book early then."]
       : (GROUND_HOW[ch.mode] ?? GROUND_HOW.train)(h),
-    warn: ["Price is an estimate — check live times and fares before you book.", ch.note].filter(Boolean),
+    warn: pub
+      ? [`Published fare (${ch.fare.currency}); the dollar figure is approximate. Peak travel days can cost a little more.`]
+      : ["Price is an estimate — check live times and fares before you book.", ch.note].filter(Boolean),
     links: [
-      japanRail ? { label: "smartEX (Shinkansen)", url: "https://smart-ex.jp/en/" } : null,
-      ch.link ? { label: ch.mode === "flight" ? "Open in Google Flights" : "Live times & prices", url: ch.link } : null,
+      book,
+      japanRail && !book ? { label: "smartEX (Shinkansen)", url: "https://smart-ex.jp/en/" } : null,
+      ch.link ? { label: ch.mode === "flight" ? "Open in Google Flights" : book ? "Compare options" : "Live times & prices", url: ch.link } : null,
     ].filter((l) => l?.url),
   };
 }
@@ -212,7 +220,7 @@ function groundStep(h, jrPass) {
  * jr:      jrPassAnalysis result (or null)
  * pax:     {adults, children, infants}
  */
-export function buildPlaybook({ flights = [], hotels = [], hops = [], jr = null, pax = DEFAULT_PAX }) {
+export function buildPlaybook({ flights = [], hotels = [], hops = [], jr = null, pax = DEFAULT_PAX, linkFor = (b) => b?.url }) {
   const seats = seatsOf(pax);
   // The pass only when it beats the JR tickets the traveler actually rides.
   const jrHops = hops.filter((h) => h.choice?.id === "rail" && h.choice.jr !== undefined && h.choice.jr !== false);
@@ -220,7 +228,7 @@ export function buildPlaybook({ flights = [], hotels = [], hops = [], jr = null,
   const jrPass = passUsd != null && jrHops.length > 0 && passUsd < jrHops.reduce((s, h) => s + h.choice.total, 0);
   const steps = [
     ...flights.map((f) => flightStep(f, pax)),
-    ...hops.map((h) => groundStep(h, jrPass)),
+    ...hops.map((h) => groundStep(h, jrPass, pax, linkFor)),
     ...hotels.map((h) => hotelStep(h, pax)),
   ].filter(Boolean);
   if (jrPass) {
@@ -244,6 +252,7 @@ export function buildPlaybook({ flights = [], hotels = [], hops = [], jr = null,
       transfers ? "Never transfer points speculatively: confirm the exact award is bookable, transfer, then book in one sitting." : null,
       "Pay cash bookings with a card that includes trip-delay and cancellation cover.",
       "Save every confirmation code below — the share link and PDF carry this checklist too.",
+      hops.some((h) => h.choice?.book?.partner) ? "Meridian may earn a commission when you book through partner links such as Omio — it never changes your price." : null,
     ].filter(Boolean),
   };
 }

@@ -83,11 +83,15 @@ export function buildLedger({ flights, hotels, route, jr, hops = [], pax = DEFAU
     }
     const covered = usePass && jrHops.includes(h);
     if (!covered) { cash += ch.total; retail += ch.total; }
+    const pub = ch.est === false && ch.fare; // a published fare, in its own currency
     lines.push({
       group: "Ground", label: `${h.a.name} → ${h.b.name} · ${ch.label}`,
       value: covered ? "JR Pass" : `$${ch.total.toLocaleString()}`,
-      sub: [ch.svc, ch.perVehicle ? (ch.vehicles > 1 ? `${ch.vehicles} cars` : "per car") : seats > 1 ? `${seats} × $${ch.pp}` : null].filter(Boolean).join(" · "),
-      est: !covered,
+      sub: [ch.svc,
+        pub ? `${ch.fare.symbol}${(ch.fare.local * seats).toLocaleString("en-US")} published fare`
+          : ch.perVehicle ? (ch.vehicles > 1 ? `${ch.vehicles} cars` : "per car") : seats > 1 ? `${seats} × $${ch.pp}` : null,
+      ].filter(Boolean).join(" · "),
+      est: !covered && !pub,
     });
   });
   if (usePass) {

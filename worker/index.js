@@ -9,6 +9,8 @@
  *       → Seats.aero cached award availability for that exact route+date
  *   GET /api/places?lat=35.67&lon=139.76&radius=1500&kind=sights|food|shop
  *       → named places around a point (OpenStreetMap via Overpass, cached)
+ *   GET /go?p=omio&u=https://www.omio.com/trains/rome/florence
+ *       → 302 to the partner page with Meridian's affiliate tracking
  *
  * Providers (checked in this order per endpoint):
  *   TRAVELPAYOUTS_TOKEN — free tier. Aviasales cached market fares (economy).
@@ -651,6 +653,54 @@ async function osmPlaces(env, q) {
   return out;
 }
 
+/* ── Partner links: /go?p=omio&u=<partner page> ─────────────────────────
+ * Every outbound booking link to an affiliate partner goes through here.
+ * The worker adds the tracking from a dashboard variable (OMIO_LINK…), so
+ * affiliate IDs never ship in the page and can be changed without a
+ * deploy. The variable holds any tracking link the partner's network
+ * generated for its home page — Impact, Travelpayouts, Partnerize, Awin,
+ * or a direct link with tracking parameters — and the route page is
+ * swapped in. Only the partner's own domains are allowed: never an open
+ * redirect. */
+const PARTNERS = {
+  omio: { env: "OMIO_LINK", host: /(^|\.)omio\.(com|co\.uk|de|fr|it|es|nl|pl|pt|at|ch|be|se|dk|cz|ie|ca|com\.br|com\.mx|com\.au|com\.ar)$/i },
+};
+export function trackedUrl(template, target, partnerHost) {
+  const t = String(template ?? "").trim();
+  if (!t) return target;
+  if (t.includes("{url}")) return t.replace("{url}", encodeURIComponent(target));
+  let u;
+  try { u = new URL(t); } catch { return target; }
+  // Partnerize style: …/destination:<encoded url>
+  if (/\/destination:/.test(u.pathname)) return t.replace(/destination:[^/?#]*/, `destination:${encodeURIComponent(target)}`);
+  // A direct partner link carrying tracking parameters: keep them on the route page.
+  if (partnerHost.test(u.hostname)) {
+    const out = new URL(target);
+    u.searchParams.forEach((v, k) => out.searchParams.set(k, v));
+    return out.toString();
+  }
+  // A network redirect with a destination parameter (u=, url=, ulp=, ued=, murl=…)
+  for (const [k, v] of u.searchParams) {
+    if (/^https?:\/\//i.test(v)) { u.searchParams.set(k, target); return u.toString(); }
+  }
+  // Networks that take a landing page even when the link was made without one.
+  if (/^\/c\/\d+\/\d+\/\d+/.test(u.pathname)) { u.searchParams.set("u", target); return u.toString(); } // Impact
+  if (/(^|\.)awin1\.com$/i.test(u.hostname)) { u.searchParams.set("ued", target); return u.toString(); } // Awin
+  // A short link with no destination slot: tracked, but lands on the home page.
+  return t;
+}
+function partnerRedirect(env, q) {
+  const p = PARTNERS[q.p];
+  if (!p) return json({ error: "unknown partner" }, 400);
+  let target;
+  try { target = new URL(q.u); } catch { return json({ error: "bad link" }, 400); }
+  if (target.protocol !== "https:" || !p.host.test(target.hostname)) return json({ error: "not a partner link" }, 400);
+  return new Response(null, {
+    status: 302,
+    headers: { Location: trackedUrl(env[p.env], target.toString(), p.host), "Cache-Control": "no-store", "Referrer-Policy": "no-referrer-when-downgrade" },
+  });
+}
+
 /* ── Metering: who may spend paid lookups ────────────────────────────────
  * The site is public, so metered providers (SerpAPI's Google Flights
  * searches) only run for signed-in accounts, under a per-account and a
@@ -827,6 +877,7 @@ async function handle(req, env, ctx) {
           })),
         })) ?? []);
       }
+      if (url.pathname === "/go") return partnerRedirect(env, q);
       if (url.pathname === "/api/places") {
         try { return json(await osmPlaces(env, q)); }
         catch (e) { return json({ error: String(e.message ?? e).slice(0, 120) }, 502); }

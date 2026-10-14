@@ -103,7 +103,7 @@ export function BookingPlaybook({ playbook, storeKey }) {
                   <div className="flex items-center gap-2 mt-2.5 flex-wrap">
                     {!m.done && s.links.map((l) => (
                       <a
-                        key={l.url} href={l.url} target="_blank" rel="noreferrer noopener"
+                        key={l.url} href={l.url} target="_blank" rel={l.sponsored ? "noreferrer noopener sponsored" : "noreferrer noopener"}
                         className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold"
                         style={{ background: T.ink, color: T.paper }}
                       >{l.label} <ExternalLink size={11} /></a>

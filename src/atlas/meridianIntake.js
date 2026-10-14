@@ -11,7 +11,7 @@ import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
-import { geoSearch, liveHotelsDetailed, liveMode, limitNotes, searchPOI, liveFlights, liveAwards, livePlaces } from "../api/client.js";
+import { geoSearch, liveHotelsDetailed, liveMode, limitNotes, searchPOI, liveFlights, liveAwards, livePlaces, bookingHref } from "../api/client.js";
 import { mergeLiveLeg, mergeLiveAwards } from "../lib/liveMerge.js";
 import { applyFlightView, layoversOf, stopsOf, SORTS, STOP_CAPS } from "../lib/flightFilters.js";
 import { partyFare } from "../lib/party.js";
@@ -78,7 +78,11 @@ const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const DUR = RM ? 0 : 1400;
 
 // ---- data prep -------------------------------------------------
-const airports = AIRPORTS_RAW.map(a => ({iata:a[0], name:a[1], lat:a[2], lon:a[3], cc:a[4], city:a[5]||a[1], large:a[6]===1, region:a[7]||''}));
+// The airport data spells a few cities locally; show (and match rail,
+// fare and booking data on) the English name, and keep the local one searchable.
+const EN_CITY = { Firenze:'Florence', Napoli:'Naples', Genova:'Genoa', 'Köln':'Cologne', 'Göteborg':'Gothenburg', Kerkyra:'Corfu' };
+const LOCAL_CITY = Object.fromEntries(Object.entries(EN_CITY).map(([l,e])=>[e,l]));
+const airports = AIRPORTS_RAW.map(a => ({iata:a[0], name:a[1], lat:a[2], lon:a[3], cc:a[4], city:EN_CITY[a[5]]??(a[5]||a[1]), large:a[6]===1, region:a[7]||''}));
 const byCC = d3.group(airports, d=>d.cc);
 
 function citiesOf(cc){
@@ -276,7 +280,7 @@ const countryByCC = new Map(countries.map(f=>[a2Of(f),f]));
 const ccName = cc=>{ const f=countryByCC.get(cc); return f?nameOf(f):cc; };
 const allCities = [...byCC.keys()].flatMap(cc=>citiesOf(cc));
 const placeItems = [
-  ...allCities.map(c=>({kind:'city',c,cc:c.cc,_s:`${c.city} ${ccName(c.cc)} ${c.airports.map(a=>a.iata).join(' ')}`.toLowerCase()})),
+  ...allCities.map(c=>({kind:'city',c,cc:c.cc,_s:`${c.city} ${ccName(c.cc)} ${c.airports.map(a=>a.iata).join(' ')} ${LOCAL_CITY[c.city]??''}`.toLowerCase()})),
   ...allCities.flatMap(c=>c.airports.map(a=>({kind:'ap',a,c,cc:c.cc,_s:`${a.iata} ${a.city} ${a.name} ${ccName(c.cc)}`.toLowerCase()}))),
   ...countryItems.map(it=>({kind:'country',f:it.f,alias:it.alias,_s:it._s})),
 ];
@@ -866,7 +870,9 @@ function stepItinerary(browseCC){
       };
       draw();
       if(q.length>=3) townTimer=setTimeout(async()=>{
-        const towns=(await geoSearch(q)).filter(g=>g.latitude!=null&&!hits.some(h=>h.c.city.toLowerCase()===String(g.name).toLowerCase())&&!trip.stops.find(s=>s.city===g.name)).slice(0,4);
+        // a town is a duplicate only when an airport city of the same name sits in the same country
+        const dup=g=>hits.some(h=>h.c.city.toLowerCase()===String(g.name).toLowerCase()&&h.cc===String(g.country_code??'').toUpperCase());
+        const towns=(await geoSearch(q)).filter(g=>g.latitude!=null&&!dup(g)&&!trip.stops.find(s=>s.city===g.name)).slice(0,4);
         if(inp.value.trim().toLowerCase()===q) draw(towns);
       },350);
     };
@@ -1207,6 +1213,7 @@ function stepHome(){
 /* ---- 6. between cities — every practical mode, priced for the party ---- */
 const curatedId=name=>{ const c=searchCities(String(name).replace(/\s*\(.+\)$/,''))[0]; return c?.id??null; };
 const placeOf=(x,name)=>({name,lat:x.lat,lon:x.lon,iso2:x.cc??x.iso2??null,iata:x.iata??x.airports?.[0]?.iata??null});
+const airportPlace=(ap,name)=>({...placeOf(ap,name),airport:true});
 /** Ground hops in travel order: landing airport → first stop (when it
  *  isn't the landing city), stop → stop, last stop → the airport home. */
 function buildHops(){
@@ -1214,14 +1221,14 @@ function buildHops(){
   if(!stops.length) return hops;
   const ap=trip.dest.airport, first=stops[0];
   const apName=a=>`${(a.city??'').replace(/\s*\(.+\)$/,'')} (${a.iata})`;
-  if(ap&&haversine(ap,first)>60) hops.push({key:`@${ap.iata}>${first.city}`,a:placeOf(ap,apName(ap)),b:placeOf(first,first.city),date:arriveISO(),
+  if(ap&&haversine(ap,first)>60) hops.push({key:`@${ap.iata}>${first.city}`,a:airportPlace(ap,apName(ap)),b:placeOf(first,first.city),date:arriveISO(),
     rail:railEdge(curatedId(ap.city),curatedId(first.city))});
   let cursor=arriveISO();
   stops.forEach((s,i)=>{ cursor=addDaysISO(cursor,s.nights); const n=stops[i+1];
     if(n) hops.push({key:`${s.city}>${n.city}`,a:placeOf(s,s.city),b:placeOf(n,n.city),date:cursor,rail:railEdge(curatedId(s.city),curatedId(n.city))}); });
   const dep=trip.type==='noreturn'?null:(trip.endAirport??trip.dest.airport);
   const last=stops[stops.length-1];
-  if(dep&&haversine(last,dep)>60) hops.push({key:`${last.city}>@${dep.iata}`,a:placeOf(last,last.city),b:placeOf(dep,apName(dep)),date:returnISO(),
+  if(dep&&haversine(last,dep)>60) hops.push({key:`${last.city}>@${dep.iata}`,a:placeOf(last,last.city),b:airportPlace(dep,apName(dep)),date:returnISO(),
     rail:railEdge(curatedId(last.city),curatedId(dep.city))});
   return hops.map(h=>({...h,...hopOptions({a:h.a,b:h.b,pax:trip.pax,rail:h.rail,date:h.date})}));
 }
@@ -1241,12 +1248,18 @@ function stepTransport(){
     return zoomToBounds([[d3.min(xs),d3.min(ys)],[d3.max(xs),d3.max(ys)]],0.3,DUR,Math.min(420,W*0.34));
   };
   const money=n=>`$${Math.round(n).toLocaleString()}`;
+  // a published fare in its own currency, for the whole party
+  const pubFare=o=>`${o.fare.symbol}${(o.fare.local*(o.fare.seats??1)).toLocaleString('en-US')}`;
   const render=()=>{
     const total=d3.sum(hops,h=>hopChoice(h)?.total??0);
+    const anyPub=hops.some(h=>h.options.some(o=>o.est===false));
+    const anyPartner=hops.some(h=>h.options.some(o=>o.book?.partner));
+    const allPub=hops.every(h=>hopChoice(h)?.est===false);
     showCard(`
       <div class="eyebrow">Step 6 — Between cities</div>
       <div class="question">How do you get around?</div>
-      <div class="hint">Every practical way to make each hop, priced for ${paxLabel()}. Estimates until live rail, bus and ferry fares are connected — each one links to live times and prices.</div>
+      <div class="hint">Every practical way to make each hop, priced for ${paxLabel()}. ${anyPub?'Trains that sell at fixed prices show the published fare; the rest are estimates':'Estimates'} until live rail, bus and ferry fares are connected — each one links to live times and prices.</div>
+      ${anyPartner?'<div class="finenote" style="margin-top:6px">Meridian may earn a commission when you book through partner links such as Omio — it never changes your price.</div>':''}
       ${hops.map((h,i)=>{ const ch=hopChoice(h);
         return `<div class="leg">
           <div class="lh"><span class="num">${i+1}</span><span class="rt">${h.a.name} → ${h.b.name}</span><span class="dist">${h.km.toLocaleString()} km · ${fmtDate(h.date).slice(0,6)}</span></div>
@@ -1254,12 +1267,13 @@ function stepTransport(){
             <button type="button" class="mode${ch?.id===o.id?' sel':''}" data-h="${i}" data-o="${o.id}">
               ${o.tags?.length?`<span class="best">${o.tags.join(' · ')}</span>`:''}
               <div class="mn">${o.icon} ${o.label}</div>
-              <div class="md">${fmtMin(o.min)} · ${money(o.total)}${o.perVehicle?` · ${o.vehicles>1?o.vehicles+' cars':'per car'}`:''}</div>
+              <div class="md">${fmtMin(o.min)} · ${o.est===false&&o.fare?`${pubFare(o)} ≈ `:''}${money(o.total)}${o.perVehicle?` · ${o.vehicles>1?o.vehicles+' cars':'per car'}`:''}</div>
+              ${o.est===false?'<div class="pub">Published fare</div>':''}
             </button>`).join('')}</div>
-            ${ch?`<div class="finenote" style="margin-top:8px">${ch.svc??''}${ch.note?` — ${ch.note}`:''}${ch.link?` · <a href="${ch.link}" target="_blank" rel="noreferrer" style="color:var(--route)">Live times &amp; prices ↗</a>`:''}</div>`:''}`
+            ${ch?`<div class="finenote" style="margin-top:8px">${ch.svc??''}${ch.note?` — ${ch.note}`:''}${ch.book?` · <a class="bookln" href="${escT(bookingHref(ch.book))}" target="_blank" rel="${ch.book.partner?'noreferrer sponsored':'noreferrer'}">${ch.book.partner?'Book on':'Book with'} ${escT(ch.book.label)} ↗</a>`:''}${ch.link?` · <a href="${escT(ch.link)}" target="_blank" rel="noreferrer" style="color:var(--route)">${ch.book?'Compare options':'Live times &amp; prices'} ↗</a>`:''}</div>`:''}`
           :`<div class="hint">No practical surface or air option found — <a href="https://www.rome2rio.com/map/${encodeURIComponent(h.a.name)}/${encodeURIComponent(h.b.name)}" target="_blank" rel="noreferrer" style="color:var(--route)">check Rome2rio ↗</a></div>`}
         </div>`; }).join('')}
-      <div class="totals"><div class="trow big"><span class="k">Getting around</span><span class="v">${money(total)} est.</span></div>
+      <div class="totals"><div class="trow big"><span class="k">Getting around</span><span class="v">${money(total)}${allPub?'':' est.'}</span></div>
         <div class="trow"><span class="k">For</span><span class="v">${paxLabel()}</span></div></div>
       <div class="row" style="margin-top:12px">
         <button class="btn red" id="go">See the whole trip →</button>

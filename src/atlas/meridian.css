@@ -208,6 +208,8 @@
 .mode .md{font-family:var(--mono);font-size:9.5px;color:var(--ink-soft);margin-top:4px;line-height:1.6}
 .mode .best{position:absolute;top:-8px;right:8px;font-family:var(--mono);font-size:7.5px;letter-spacing:.18em;
   border:1px solid var(--gold-deep);background:rgba(251,248,243,.95);color:var(--gold);padding:2px 6px;border-radius:1px;text-transform:uppercase}
+.mode .pub{font-family:var(--mono);font-size:7.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--ok);margin-top:3px}
+.bookln{color:var(--ok);font-weight:500}
 .totals{border-top:1px solid var(--hair);margin-top:16px;padding-top:14px}
 .trow{display:flex;justify-content:space-between;font-size:13px;font-weight:300;padding:4px 0}
 .trow .k{color:var(--ink-soft)}
