@@ -9,8 +9,8 @@ import { cityById } from "../data/world.js";
 /** `ret` (return date) lets the worker fall back to the much richer
  *  round-trip fare cache — pass it only for the outbound leg of a true
  *  round trip (same airports both ways). */
-export function useLiveLeg(fromAir, toAir, date, cabin, ret = null, viaHub = null) {
-  const [state, set] = useState({ offers: null, loading: false });
+export function useLiveLeg(fromAir, toAir, date, cabin, ret = null, viaHub = null, tick = 0, minLay = null) {
+  const [state, set] = useState({ offers: null, loading: false, at: null });
   useEffect(() => {
     if (!liveMode() || !fromAir || !toAir || !date) {
       set({ offers: null, loading: false });
@@ -18,11 +18,11 @@ export function useLiveLeg(fromAir, toAir, date, cabin, ret = null, viaHub = nul
     }
     let on = true;
     set({ offers: null, loading: true });
-    liveFlights(fromAir, toAir, date, cabin, ret, viaHub).then(
-      (offers) => on && set({ offers, loading: false })
+    liveFlights(fromAir, toAir, date, cabin, ret, viaHub, { minLay }).then(
+      (offers) => on && set({ offers, loading: false, at: Date.now() })
     );
     return () => { on = false; };
-  }, [fromAir, toAir, date, cabin, ret, viaHub]);
+  }, [fromAir, toAir, date, cabin, ret, viaHub, tick, minLay]);
   return state;
 }
 
@@ -49,7 +49,7 @@ export function useLiveAwards(fromAir, toAir, date, cabin = null, tick = 0) {
 
 /** Live hotel offers for every stop, keyed by city id. Fetches sequentially
  *  to stay inside Amadeus free-tier rate limits. */
-export function useLiveHotelsMap(schedule) {
+export function useLiveHotelsMap(schedule, tick = 0) {
   const [map, setMap] = useState({});
   const key = schedule ? schedule.cities.map((c) => `${c.cid}:${c.checkIn}`).join("|") : "";
   useEffect(() => {
@@ -65,6 +65,6 @@ export function useLiveHotelsMap(schedule) {
       }
     })();
     return () => { on = false; };
-  }, [key]);
+  }, [key, tick]);
   return map;
 }

@@ -76,7 +76,7 @@ export function mergeLiveLeg(leg, offers, cabin) {
       // Full routing, spelled out: the airport chain and each segment
       // with its own times, so connections are never a mystery.
       routeChain: segs.length > 1 ? [segs[0].from, ...segs.map((s) => s.to)].join(" → ") : null,
-      segs: segs.map((s) => ({ from: s.from, to: s.to, dep: s.dep ?? null, arr: s.arr ?? null, carrier: s.carrier, num: s.num })),
+      segs: segs.map((s) => ({ from: s.from, to: s.to, dep: s.dep ?? null, arr: s.arr ?? null, carrier: s.carrier, num: s.num, aircraft: s.aircraft ?? null })),
       stops, est: false, live: true, cashOnly: true,
     };
   });
@@ -132,6 +132,8 @@ function applyAwardHit(f, hit) {
     fees: hit.taxes ?? f.fees ?? 0,
     est: false, awardLive: true,
     seats: hit.seats, direct: hit.direct,
+    // real stop count when the flight detail came back; nonstop space is 0
+    ...(hit.stops != null ? { stops: hit.stops } : hit.direct ? { stops: 0 } : {}),
     airline: hit.airlines || f.airline,
     twoBookings: !!hit.via, viaHub: hit.via ?? null,
     via: hit.via

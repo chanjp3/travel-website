@@ -13,11 +13,30 @@
  */
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { districtPolygon } from "../data/districts.js";
 
 const STYLE = "https://tiles.openfreemap.org/styles/positron";
 
 let map = null, holder = null, markers = [], failed = false;
-let onFailCb = null, onViewCb = null, onPinCb = null;
+let onFailCb = null, onViewCb = null, onPinCb = null, onDistrictCb = null;
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const PLACE_ICON = { food: "🍽", shop: "🛍", sights: "◆" };
+
+/** Shade the curated districts (fill + dashed edge) once the style is up. */
+function setDistricts(list) {
+  if (!map) return;
+  const data = { type: "FeatureCollection", features: list.map(districtPolygon) };
+  const apply = () => {
+    const src = map.getSource("districts");
+    if (src) src.setData(data);
+    else {
+      map.addSource("districts", { type: "geojson", data });
+      map.addLayer({ id: "districts-fill", type: "fill", source: "districts", paint: { "fill-color": "#8A6A2F", "fill-opacity": 0.13 } });
+      map.addLayer({ id: "districts-line", type: "line", source: "districts", paint: { "line-color": "#8A6A2F", "line-width": 1.2, "line-dasharray": [2, 2], "line-opacity": 0.7 } });
+    }
+  };
+  if (map.isStyleLoaded()) apply(); else map.once("load", apply);
+}
 let skipNextMove = false, lastView = null;
 
 function viewArea() {
@@ -31,11 +50,15 @@ function viewArea() {
 export function showDetailMap(container, {
   lat, lon, zoom = 12.6, pins = [], attrs = [], nights = 1,
   selected = null, fly = true,
-  onFail, onViewChange, onPinClick,
+  places = [],          // [{name, lat, lon, kind: sights|food|shop, sub}]
+  districts = [],       // curated nicer districts to shade, [{name, lat, lon, r}]
+  tiers = null,         // name → "high" | "mid" | "low" price tier for pins
+  onFail, onViewChange, onPinClick, onDistrictClick,
 } = {}) {
   onFailCb = onFail ?? onFailCb;
   onViewCb = onViewChange ?? onViewCb;
   onPinCb = onPinClick ?? onPinCb;
+  onDistrictCb = onDistrictClick ?? onDistrictCb;
   if (failed) return false;
 
   if (!holder) {
@@ -82,24 +105,48 @@ export function showDetailMap(container, {
 
   markers.forEach((m) => m.remove());
   markers = [];
+  setDistricts(districts);
+  districts.forEach((d) => {
+    const el = document.createElement("button");
+    el.type = "button";
+    el.className = "dm-district";
+    el.textContent = d.name;
+    el.addEventListener("click", (e) => { e.stopPropagation(); onDistrictCb?.(d); });
+    markers.push(new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([d.lon, d.lat]).addTo(map));
+  });
+  places
+    .filter((p) => p.lat != null && p.lon != null)
+    .forEach((p) => {
+      const el = document.createElement("div");
+      el.className = `dm-place dm-${p.kind}${p.top ? " dm-top" : ""}`;
+      el.title = [p.name, p.sub].filter(Boolean).join(" · ");
+      el.innerHTML = `<span class="dm-ico">${PLACE_ICON[p.kind] ?? "•"}</span><span class="dm-place-name">${esc(p.name)}</span>`;
+      markers.push(new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lon, p.lat]).addTo(map));
+    });
   attrs
     .filter((a) => a.lat != null && a.lon != null)
     .forEach((a) => {
       const el = document.createElement("div");
       el.className = "dm-attr";
-      el.innerHTML = `<span class="dm-diamond"></span><span class="dm-attr-name">${a.name}</span>`;
+      el.innerHTML = `<span class="dm-diamond"></span><span class="dm-attr-name">${esc(a.name)}</span>`;
       markers.push(new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([a.lon, a.lat]).addTo(map));
     });
   pins
     .filter((p) => p.lat != null && p.lon != null)
     .forEach((p) => {
       const el = document.createElement("div");
-      el.className = "dm-pin" + (selected === p.name ? " dm-sel" : "");
+      el.className = "dm-pin" + (selected === p.name ? " dm-sel" : "") + (tiers?.[p.name] ? ` dm-${tiers[p.name]}` : "");
       el.innerHTML = `<span class="dm-dot"></span><span class="dm-price">$${Math.round(p.price / Math.max(nights, 1))}</span>`;
       el.addEventListener("click", (e) => { e.stopPropagation(); onPinCb?.(p); });
       markers.push(new maplibregl.Marker({ element: el, anchor: "bottom" }).setLngLat([p.lon, p.lat]).addTo(map));
     });
   return true;
+}
+
+/** Glide the street map to a spot (e.g. a district the traveler opened). */
+export function flyDetail(lat, lon, zoom = 14) {
+  if (!map || failed) return;
+  map.flyTo({ center: [lon, lat], zoom, duration: 1200, essential: true });
 }
 
 export function hideDetailMap() {
@@ -115,6 +162,6 @@ export function destroyDetailMap() {
   holder?.remove();
   holder = null;
   failed = false;
-  onFailCb = onViewCb = onPinCb = null;
+  onFailCb = onViewCb = onPinCb = onDistrictCb = null;
   lastView = null;
 }

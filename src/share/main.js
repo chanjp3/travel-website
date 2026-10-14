@@ -23,7 +23,7 @@ function payText(p) {
   if (p.kind === "included") return "Included in the round-trip fare";
   if (p.kind === "points") return `${kpts(p.points)} ${p.source ?? "points"}${p.transfer && p.program ? ` → ${p.program}` : ""} + ${usd(p.fees)} taxes`;
   if (p.kind === "miles") return `${kpts(p.points)} ${p.program ?? ""} miles + ${usd(p.fees)} taxes`;
-  if (p.nightly != null) return `${usd(p.nightly)}/night · ${usd(p.total)} total`;
+  if (p.nightly != null) return `${usd(p.nightly)}/night${p.rooms > 1 ? ` (${p.rooms} rooms)` : ""} · ${usd(p.total)} total`;
   return `${usd(p.cash)}${p.roundTrip && p.rtTotal ? ` · half of the ${usd(p.rtTotal)} round-trip fare` : ""}`;
 }
 
@@ -91,6 +91,40 @@ function costs(c) {
   </section>`;
 }
 
+// Only real web links from a snapshot ever become hrefs.
+const safeUrl = (u) => (typeof u === "string" && /^https:\/\/[^\s"'<>]+$/.test(u) ? u : null);
+const PAY = { points: "points", cash: "cash", pass: "rail pass" };
+const TICKS = `meridian.share.ticks.${params.get("id")}`;
+const readTicks = () => { try { return JSON.parse(localStorage.getItem(TICKS) ?? "{}"); } catch { return {}; } };
+
+function playbookSection(pb) {
+  if (!pb?.steps?.length) return "";
+  const ticks = readTicks();
+  const steps = pb.steps.map((st, i) => {
+    const links = (st.links ?? []).map((l) => [l.label, safeUrl(l.url)]).filter(([, u]) => u)
+      .map(([label, u]) => `<a class="sh-link" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`).join("");
+    return `<li class="sh-step${ticks[i] ? " sh-done" : ""}">
+      <label class="sh-check"><input type="checkbox" data-i="${i}"${ticks[i] ? " checked" : ""} /><span>${esc(st.n ?? i + 1)}</span></label>
+      <div class="sh-stepbody">
+        <div class="sh-row">
+          <div>
+            <div class="sh-steptitle">${esc(st.title)} <span class="sh-pay sh-pay-${esc(st.pay)}">${esc(PAY[st.pay] ?? "")}</span></div>
+            <div class="sh-sub">${esc([st.date && day(st.date), st.sub].filter(Boolean).join(" · "))}</div>
+          </div>
+          <div class="sh-price">${esc(st.price)}${st.priceSub ? `<div class="sh-sub">${esc(st.priceSub)}</div>` : ""}</div>
+        </div>
+        <ol class="sh-how">${(st.how ?? []).map((h) => `<li>${esc(h)}</li>`).join("")}</ol>
+        ${(st.warn ?? []).map((w) => `<div class="sh-note">${esc(w)}</div>`).join("")}
+        ${links ? `<div class="sh-links">${links}</div>` : ""}
+        <div class="sh-conf">Confirmation: ________________</div>
+      </div>
+    </li>`;
+  }).join("");
+  return `<h2>How to book it</h2>
+    <section class="sh-card sh-tips">${(pb.tips ?? []).map((t) => `<div>· ${esc(t)}</div>`).join("")}</section>
+    <ol class="sh-steps">${steps}</ol>`;
+}
+
 function render(s) {
   const nights = (s.stops ?? []).reduce((a, x) => a + (x.nights ?? 0), 0);
   const ptsTotal = (s.costs?.pointsUsed ?? []).reduce((a, p) => a + p.points, 0);
@@ -99,7 +133,7 @@ function render(s) {
     <header class="sh-head">
       <div class="sh-kick">Meridian · Itinerary</div>
       <h1>${esc(s.title)}</h1>
-      <div class="sh-dates">${esc(day(s.departDate))}${s.returnDate ? ` – ${esc(day(s.returnDate))}` : ""} · ${esc(nights)} nights${s.cabin ? ` · ${esc(s.cabin)}` : ""}${s.openJaw ? " · open jaw" : ""}</div>
+      <div class="sh-dates">${esc(day(s.departDate))}${s.returnDate ? ` – ${esc(day(s.returnDate))}` : ""} · ${esc(nights)} nights${s.travelers ? ` · ${esc(s.travelers)}` : ""}${s.cabin ? ` · ${esc(s.cabin)}` : ""}${s.noReturn ? " · one-way, no return" : s.openJaw ? " · open jaw" : ""}</div>
       <div class="sh-actions">
         <button id="shPrint" type="button">Print / save PDF</button>
         <a href="/">Plan your own on Meridian ↗</a>
@@ -115,6 +149,7 @@ function render(s) {
     ${(s.flights ?? []).map(flightCard).join("")}
     <h2>Stays</h2>
     ${(s.hotels ?? []).map(hotelCard).join("")}
+    ${playbookSection(s.playbook)}
     <h2>Day by day</h2>
     <section class="sh-days">${(s.days ?? []).map(dayBlock).join("")}</section>
     <h2>Costs</h2>
@@ -125,6 +160,13 @@ function render(s) {
       <br />Planned with <a href="/">Meridian</a>.
     </footer>`;
   document.getElementById("shPrint").onclick = () => window.print();
+  root.querySelectorAll(".sh-check input").forEach((box) => {
+    box.onchange = () => {
+      const t = readTicks(); t[box.dataset.i] = box.checked;
+      try { localStorage.setItem(TICKS, JSON.stringify(t)); } catch { /* ticks just don't persist */ }
+      box.closest(".sh-step").classList.toggle("sh-done", box.checked);
+    };
+  });
   if (params.get("print") === "1") {
     (document.fonts?.ready ?? Promise.resolve()).then(() => setTimeout(() => window.print(), 300));
   }

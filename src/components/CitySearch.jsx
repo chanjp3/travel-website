@@ -50,7 +50,7 @@ export function CitySearch({ placeholder, exclude = [], onPick, towns = true, au
               style={{ borderBottom: `1px solid ${T.mist}` }}
             >
               <span><b>{c.name}</b> <span style={{ color: T.inkSoft }}>· {c.country}</span></span>
-              <span className="text-xs font-bold" style={{ color: T.rail, fontFamily: "'IBM Plex Mono', monospace" }}>{c.air}</span>
+              <span className="text-xs font-bold" style={{ color: T.rail, fontFamily: "'Jost', sans-serif" }}>{c.air}</span>
             </button>
           ))}
           {townHits.map((g) => (
