@@ -30,7 +30,7 @@ import { applyFlightView, SORTS, STOP_CAPS } from "./lib/flightFilters.js";
 import { km } from "./lib/geo.js";
 import { BookingPlaybook } from "./components/BookingPlaybook.jsx";
 import { watchList, watchAdd, watchRemove, watchCheck, watchSeen } from "./api/client.js";
-import { saveTripCloud, loadTripCloud, shareItinerary, captureAuthFromHash, authMe, authLoginUrl, authLogout, myTrips, deleteAccountData } from "./api/client.js";
+import { saveTripCloud, loadTripCloud, shareItinerary, captureAuthFromHash, authMe, authLoginUrl, authLogout, myTrips, deleteAccountData, bookingHref } from "./api/client.js";
 import { useLiveLeg, useLiveAwards, useLiveHotelsMap } from "./api/useLive.js";
 import { mergeLiveLeg, mergeLiveAwards, mergeLiveHotels, liveHotelRow, CABIN_KEY, SEATSAERO_SOURCES } from "./lib/liveMerge.js";
 import { flightPathHTML } from "./lib/flightPath.js";
@@ -343,7 +343,7 @@ export default function App() {
     const P = (c) => ({ name: c.name, lat: c.lat, lon: c.lon, iso2: iso2Of(c), iata: cityIata(c) });
     const AP = (iata) => {
       const a = airportByIata.get(iata);
-      return a ? { name: `${a.city} (${a.iata})`, lat: a.lat, lon: a.lon, iso2: a.cc, iata: a.iata } : null;
+      return a ? { name: `${a.city} (${a.iata})`, lat: a.lat, lon: a.lon, iso2: a.cc, iata: a.iata, airport: true } : null;
     };
     const list = [];
     const first = cityById[route.order[0]], last = cityById[route.order[route.order.length - 1]];
@@ -476,7 +476,7 @@ export default function App() {
   );
   const playbook = useMemo(() => {
     if (!ledger) return null;
-    return buildPlaybook({ flights: planFlights, hotels: planHotels, hops, jr, pax });
+    return buildPlaybook({ flights: planFlights, hotels: planHotels, hops, jr, pax, linkFor: bookingHref });
   }, [ledger, planFlights, planHotels, hops, jr, pax]);
   // Ticks survive reloads for the same trip (same origin, stops and dates).
   const playbookKey = route ? `${originId}|${route.order.join(",")}|${departDate}` : "";
@@ -1199,7 +1199,9 @@ export default function App() {
               <div>
                 <SectionLabel>Between cities — every way to get there</SectionLabel>
                 <p className="text-xs mb-3" style={{ color: T.inkSoft, maxWidth: "75ch" }}>
-                  Prices for {paxText(pax)}. Estimates until live rail, bus and ferry fares are connected — each hop links to live times and prices.
+                  Prices for {paxText(pax)}. Trains that sell at fixed prices (Japan's Shinkansen, Korea's KTX, Taiwan's high-speed rail)
+                  show the published fare; everything else is an estimate until live rail, bus and ferry fares are connected — each hop links to live times and prices.
+                  {hops.some((h) => h.options.some((o) => o.book?.partner)) && <> Meridian may earn a commission when you book through partner links such as Omio — it never changes your price.</>}
                 </p>
                 <div className="space-y-3">
                   {hops.map((h) => (
@@ -1223,8 +1225,11 @@ export default function App() {
                                   {on && <Check size={12} style={{ color: T.gold }} />}
                                 </div>
                                 <div className="text-xs mt-0.5" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif" }}>
-                                  {fmtMin(o.min)} · {usd(o.total)}{o.perVehicle ? (o.vehicles > 1 ? ` · ${o.vehicles} cars` : " · per car") : ""}
+                                  {fmtMin(o.min)} · {o.est === false && o.fare ? `${o.fare.symbol}${(o.fare.local * seats).toLocaleString("en-US")} ≈ ` : ""}{usd(o.total)}{o.perVehicle ? (o.vehicles > 1 ? ` · ${o.vehicles} cars` : " · per car") : ""}
                                 </div>
+                                {o.est === false && (
+                                  <div className="text-[10px] font-bold uppercase mt-0.5" style={{ color: T.pine, letterSpacing: "0.08em" }}>published fare</div>
+                                )}
                                 {o.tags?.length > 0 && (
                                   <div className="text-[10px] font-bold uppercase mt-1" style={{ color: o.tags.includes("best") ? T.pine : T.gold, letterSpacing: "0.08em" }}>{o.tags.join(" · ")}</div>
                                 )}
@@ -1238,7 +1243,9 @@ export default function App() {
                       {h.choice && (
                         <p className="text-xs mt-2" style={{ color: T.inkSoft }}>
                           {h.choice.svc}{h.choice.note ? ` — ${h.choice.note}` : ""}
-                          {h.choice.link && <> · <a href={h.choice.link} target="_blank" rel="noreferrer" className="font-bold underline" style={{ color: T.flight }}>Live times & prices ↗</a></>}
+                          {h.choice.book && <> · <a href={bookingHref(h.choice.book)} target="_blank" rel={h.choice.book.partner ? "noreferrer sponsored" : "noreferrer"} className="font-bold underline" style={{ color: T.pine }}>
+                            {h.choice.book.partner ? `Book on ${h.choice.book.label}` : `Book with ${h.choice.book.label}`} ↗</a></>}
+                          {h.choice.link && <> · <a href={h.choice.link} target="_blank" rel="noreferrer" className="font-bold underline" style={{ color: T.flight }}>{h.choice.book ? "Compare options" : "Live times & prices"} ↗</a></>}
                         </p>
                       )}
                     </div>

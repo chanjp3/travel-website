@@ -5,8 +5,11 @@
  *
  * Prices are ESTIMATES (est: true) until live rail/bus/ferry feeds are
  * connected; each option carries a link to check live times and fares.
- * Curated corridor data (Shinkansen, Eurostar, Frecciarossa…) replaces the
- * generic train model wherever it exists.
+ * Published fares (Shinkansen, KTX, Taiwan HSR — fixed-price networks)
+ * come first and are real (est: false); curated corridor data (Eurostar,
+ * Frecciarossa…) and then the generic train model fill in elsewhere.
+ * Train, bus and ferry hops in Omio's countries carry a booking link
+ * (`book`) that the app routes through the affiliate redirect.
  *
  * Water awareness: a coarse grid search over the world's land outline
  * finds the overland distance between the two places. No land route (an
@@ -20,6 +23,7 @@ import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS } from "./airports.js";
 import { km, flightMin, cashEst } from "./geo.js";
 import { seatsOf, peopleOf } from "./party.js";
+import { publishedFare } from "../data/fixedFares.js";
 
 export const MODE_LABEL = {
   flight: "Flight", hsr: "High-speed train", train: "Train", bus: "Bus",
@@ -47,6 +51,14 @@ const NA_RAIL = [
   [42.9, -80.1, 46.9, -71.1],   // VIA corridor: Toronto–Ottawa–Montreal–Quebec
 ];
 const inNARail = (p) => NA_RAIL.find(([y0, x0, y1, x1]) => p.lat >= y0 && p.lat <= y1 && p.lon >= x0 && p.lon <= x1);
+
+// Omio sells trains, buses and ferries here (Europe, UK, US, Canada).
+const OMIO = new Set([...EU_RAIL, "IS", "US", "CA"]);
+const slug = (name) => String(name ?? "").replace(/\s*\(.+\)$/, "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+/** Omio's route page for a hop (English site) — pre-filled search widget. */
+export const omioUrl = (mode, a, b) =>
+  `https://www.omio.com/${mode === "bus" ? "buses" : mode === "ferry" ? "ferries" : "trains"}/${slug(a.name)}/${slug(b.name)}`;
 
 const ASIA_CHEAP = new Set(["TH", "VN", "KH", "LA", "MM", "ID", "PH", "MY", "IN", "LK", "NP", "BD", "PK", "EG", "MA", "MX", "PE", "BO", "CO", "EC", "GT", "TR", "TN", "KE", "TZ"]);
 const PRICEY = new Set(["US", "CA", "AU", "NZ", "JP", "GB", "CH", "NO", "SE", "DK", "FI", "IS", "IE", "FR", "DE", "NL", "BE", "AT", "IT", "ES", "SG", "AE", "IL", "KR", "HK"]);
@@ -246,9 +258,18 @@ export function hopOptions({ a, b, pax, rail = null, date = null }) {
   }
 
   if (!overWater) {
-    // Train — curated corridor first, else the generic network model
-    // (dense networks only — sparse ones are left to the live-price link).
-    if (rail) {
+    // Train — a published fare first, then curated corridor data, else the
+    // generic network model (dense networks only — sparse ones are left to
+    // the live-price link).
+    const pub = publishedFare(a, b);
+    if (pub) {
+      add(/kodama|train/i.test(pub.svc) ? "train" : "hsr", {
+        id: "rail", min: pub.min + 30, pp: pub.usd, total: pub.usd * seats, svc: pub.svc, jr: pub.jr,
+        est: false, fare: { local: pub.local, symbol: pub.symbol, currency: pub.currency, basis: pub.basis, seats },
+        note: `${pub.basis}. Shown in ${pub.currency}; the dollar figure is approximate.`,
+        book: { label: pub.book.label, url: pub.book.url }, link: r2rLink(a, b),
+      });
+    } else if (rail) {
       const pp = Math.round(rail.usd ?? (rail.yen ? rail.yen / 150 : 0));
       const fast = /shinkansen|nozomi|hikari|kodama|kagayaki|tsurugi|eurostar|tgv|ave|frecciarossa|ice|railjet|lyria/i.test(rail.svc ?? "");
       add(fast ? "hsr" : "train", { id: "rail", min: rail.min + 30, pp, total: pp * seats, svc: rail.svc, jr: rail.jr, link: r2rLink(a, b) });
@@ -294,6 +315,13 @@ export function hopOptions({ a, b, pax, rail = null, date = null }) {
     const pp = Math.max(15, Math.round(d * 0.26));
     add("ferry", { id: "ferry", min: Math.round((d / 32) * 60) + 60, pp, total: pp * seats,
       svc: d > 300 ? "Overnight ferry" : "Ferry", note: "Check sailing days — many routes don't run daily.", link: r2rLink(a, b) });
+  }
+
+  // Book with Omio where it sells the route (never for airport hops).
+  if (ca && cb && OMIO.has(ca) && OMIO.has(cb) && !a.airport && !b.airport) {
+    for (const o of opts) {
+      if (["train", "hsr", "bus", "ferry"].includes(o.mode) && !o.book) o.book = { partner: "omio", label: "Omio", url: omioUrl(o.mode, a, b) };
+    }
   }
 
   // Tag cheapest / fastest / best balance.

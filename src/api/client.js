@@ -159,6 +159,15 @@ export const watchSeen = (id) => watchCall(`/api/watch/seen?id=${encodeURICompon
 
 export const searchLocations = (q) => get("/api/locations", { q });
 
+/** A booking link with Meridian's affiliate tracking: partner links go out
+ *  through the worker's /go redirect, which adds the tracking from a
+ *  dashboard variable (so IDs stay server-side and can change any time).
+ *  Without a worker the plain partner link is used. */
+export const partnerLink = (partner, url) =>
+  partner && BASE ? `${BASE}/go?p=${encodeURIComponent(partner)}&u=${encodeURIComponent(url)}` : url;
+/** The link to show for a booking target {partner?, url}. */
+export const bookingHref = (book) => (book ? partnerLink(book.partner, book.url) : null);
+
 /** Flights for a route+date. `via` tells the worker which connection hubs
  *  to try if the fare cache has no direct answer — it then builds the
  *  journey itself (TPA→SEA + SEA→NRT) instead of returning nothing. */

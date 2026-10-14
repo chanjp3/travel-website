@@ -101,8 +101,8 @@ function playbookSection(pb) {
   if (!pb?.steps?.length) return "";
   const ticks = readTicks();
   const steps = pb.steps.map((st, i) => {
-    const links = (st.links ?? []).map((l) => [l.label, safeUrl(l.url)]).filter(([, u]) => u)
-      .map(([label, u]) => `<a class="sh-link" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(label)} ↗</a>`).join("");
+    const links = (st.links ?? []).map((l) => [l.label, safeUrl(l.url), l.sponsored === true]).filter(([, u]) => u)
+      .map(([label, u, sp]) => `<a class="sh-link" href="${esc(u)}" target="_blank" rel="noopener noreferrer${sp ? " sponsored" : ""}">${esc(label)} ↗</a>`).join("");
     return `<li class="sh-step${ticks[i] ? " sh-done" : ""}">
       <label class="sh-check"><input type="checkbox" data-i="${i}"${ticks[i] ? " checked" : ""} /><span>${esc(st.n ?? i + 1)}</span></label>
       <div class="sh-stepbody">
