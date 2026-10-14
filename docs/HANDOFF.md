@@ -39,17 +39,15 @@ onto `main` and force-pushed. It carried commit `96d1094`:
 - https://www.omio.com/trains/rome/florence is a real route page (live
   timetable and fares), so the URL pattern works on omio.com, not only
   omio.fr.
-- **Open item — `OMIO_LINK` is wrong in two ways** (state at 19:50 UTC):
-  1. It is a *plain variable*, not a Secret (absent from `wrangler secret
-     list`; the dashboard version message was "Add variable: OMIO_LINK").
-     The 19:36 merge deploy already wiped an earlier copy; the next push
-     will wipe this one.
-  2. It holds Impact's *shortened* link. The redirect now lands on
-     `omio.sjv.io/<id>` — tracked, but Omio's home page, not the route.
-     Impact's docs: a shortened (vanity) link cannot carry a deep link;
-     only the full tracking URL `https://omio.sjv.io/c/<account>/<ad>/<campaign>`
-     accepts `?u=<landing page>`, and the brand must allow deep linking.
-     The worker already appends `u=` to a `/c/…` link.
+- **Open item — `OMIO_LINK` still holds Impact's shortened link** (state
+  at 19:52 UTC). It is now a Secret (dashboard version 19:51 UTC "Updated
+  secret: OMIO_LINK"), so deploys no longer wipe it. But the redirect
+  lands on `omio.sjv.io/<id>`: a single-segment vanity link, tracked, but
+  Omio's home page, not the route. Impact's docs: a shortened (vanity)
+  link cannot carry a deep link; only the full tracking URL
+  `https://omio.sjv.io/c/<account>/<ad>/<campaign>` accepts
+  `?u=<landing page>`, and the brand must allow deep linking. The worker
+  already appends `u=` to a `/c/…` link, so no code change is needed.
 
 ## Next steps, in order
 1. **Owner, in Impact:** sign in → the Omio ad/link → retrieve the *full
@@ -57,16 +55,13 @@ onto `main` and force-pushed. It carried commit `96d1094`:
    Advanced, or untick "shorten"). Confirm the brand allows deep linking
    (Details tab; "Deep Linking" not greyed out).
 2. **Owner, in Cloudflare:** worker `trip-architect-api` → Settings →
-   Variables and Secrets → *Production* tab → `OMIO_LINK`: paste the full
-   URL and click **Encrypt** (type Secret), then **Deploy**. Then re-run
+   Variables and Secrets → *Production* tab → `OMIO_LINK` (already a
+   Secret) → edit the value, paste the full URL, **Deploy**. Then re-run
    `curl.exe -sI "https://trip-architect-api.chandler-850.workers.dev/go?p=omio&u=https%3A%2F%2Fwww.omio.com%2Ftrains%2Frome%2Fflorence"`
    and expect `Location` on `omio.sjv.io/c/…` with `u=` carrying the
    Rome→Florence page. Never paste the link value in chat.
-   Alternative safety net if plain variables keep happening:
-   `keep_vars = true` in `worker/wrangler.toml` (the deploy that carries
-   it preserves existing dashboard variables).
-3. Push this branch only after step 2 (a push deploys and would wipe a
-   plain variable). This note's update may be an unpushed local commit.
+3. This note's update is on the branch, unmerged (docs only). Fold it
+   into the next PR.
 4. Affiliate programs to apply for next (owner's Travelpayouts account
    already exists): 12Go (SE Asia ground), Welcome Pickups or Kiwitaxi
    (airport transfers), Ferryhopper, hotels (Booking.com via CJ/Awin),
