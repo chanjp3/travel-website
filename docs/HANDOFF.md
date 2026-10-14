@@ -11,11 +11,11 @@ branch onto `main`.
 
 **Caution: pushes to the working branch also deploy the production
 worker.** `wrangler versions list` shows every past merge as a pair of
-deployments (the merge, then the branch-reset push), and a docs-only push
-at 19:39 UTC deployed too. So unshipped worker changes go live before
-"ship it", and every deploy re-applies `[vars]` from `worker/wrangler.toml`,
-wiping plain dashboard variables. Check the worker's Builds settings
-(production branch) in the dashboard.
+deployments (the merge, then the branch-reset push), and docs-only pushes
+deploy too. So unshipped worker changes go live before "ship it", and
+every deploy re-applies `[vars]` from `worker/wrangler.toml`, which wipes
+plain dashboard variables (Secrets survive). Check the worker's Builds
+settings (production branch) in the dashboard if this should change.
 
 ## Shipped 14 Oct 2026
 PR #40 merged to `main` (merge commit `16ecf59`); the branch was reset
@@ -32,52 +32,47 @@ onto `main` and force-pushed. It carried commit `96d1094`:
   section in `public/terms.html`; redirect note in `public/privacy.html`.
 - City search shows English names (Firenze → Florence, etc.).
 
-## Verified after the deploy
+## Verified after the deploy (all green as of 20:22 UTC)
 - `/go?p=omio&u=https://www.omio.com/trains/rome/florence` returns `302`
-  with `Cache-Control: no-store`. Non-Omio targets, plain-`http` targets
-  and unknown partners all return `400`, so the allowlist holds.
-- https://www.omio.com/trains/rome/florence is a real route page (live
-  timetable and fares), so the URL pattern works on omio.com, not only
-  omio.fr.
-- **Open item — `OMIO_LINK` still holds Impact's shortened link** (state
-  at 19:52 UTC). It is now a Secret (dashboard version 19:51 UTC "Updated
-  secret: OMIO_LINK"), so deploys no longer wipe it. But the redirect
-  lands on `omio.sjv.io/<id>`: a single-segment vanity link, tracked, but
-  Omio's home page, not the route. Impact's docs: a shortened (vanity)
-  link cannot carry a deep link; only the full tracking URL
-  `https://omio.sjv.io/c/<account>/<ad>/<campaign>` accepts
-  `?u=<landing page>`, and the brand must allow deep linking. The worker
-  already appends `u=` to a `/c/…` link, so no code change is needed.
+  to Impact's full tracking link (`omio.sjv.io/c/<account>/<ad>/<campaign>`)
+  with `u=` carrying the Rome→Florence page; a second route (Paris→Lyon)
+  behaves the same. Non-Omio targets, plain-`http` targets and unknown
+  partners return `400`, so the allowlist holds.
+- `OMIO_LINK` is a **Secret** (dashboard version 20:22 UTC "Updated
+  secret: OMIO_LINK"). It took three tries to get here: it was first a
+  plain variable (wiped by the merge deploy), then a Secret holding
+  Impact's *shortened* link (tracked, but landed on Omio's home page —
+  shortened links cannot deep-link). The full link comes from Impact's
+  Create a Link panel → gear icon → Link Preference Settings → **Regular**
+  (now the saved default on the owner's Impact account). Never paste the
+  link value in chat.
+- https://www.omio.com/trains/rome/florence is a real route page, so the
+  URL pattern works on omio.com, not only omio.fr.
 
 ## Next steps, in order
-1. **Owner, in Impact:** sign in → the Omio ad/link → retrieve the *full
-   tracking URL* (the one with `/c/` and three numbers; Create a Link →
-   Advanced, or untick "shorten"). Confirm the brand allows deep linking
-   (Details tab; "Deep Linking" not greyed out).
-2. **Owner, in Cloudflare:** worker `trip-architect-api` → Settings →
-   Variables and Secrets → *Production* tab → `OMIO_LINK` (already a
-   Secret) → edit the value, paste the full URL, **Deploy**. Then re-run
-   `curl.exe -sI "https://trip-architect-api.chandler-850.workers.dev/go?p=omio&u=https%3A%2F%2Fwww.omio.com%2Ftrains%2Frome%2Fflorence"`
-   and expect `Location` on `omio.sjv.io/c/…` with `u=` carrying the
-   Rome→Florence page. Never paste the link value in chat.
-3. This note's update is on the branch, unmerged (docs only). Fold it
-   into the next PR.
-4. Affiliate programs to apply for next (owner's Travelpayouts account
+1. Affiliate programs to apply for next (owner's Travelpayouts account
    already exists): 12Go (SE Asia ground), Welcome Pickups or Kiwitaxi
    (airport transfers), Ferryhopper, hotels (Booking.com via CJ/Awin),
    tours (GetYourGuide/Viator). When one is approved, add it to `PARTNERS`
-   in `worker/index.js` and a `book` entry in `groundModes.js`.
+   in `worker/index.js` and a `book` entry in `groundModes.js`, store the
+   network's full tracking link as a dashboard *Secret*, and verify with
+   the curl above (adapt the partner and route).
+2. This note's updates are on the branch, unmerged (docs only). Fold them
+   into the next PR.
 
 ## Rules that must persist
 - Never paste API keys, tokens or tracking links in chat. Secrets live only
-  in the Cloudflare dashboard (worker → Settings → Variables and Secrets).
+  in the Cloudflare dashboard (worker → Settings → Variables and Secrets),
+  stored as type Secret, never as plain variables.
 - No scraping of airline or partner sites.
 - Seats.aero awards stay owner-only until `AWARDS_PUBLIC` is set.
 - Owner email is not in the repo; `OWNER_EMAILS` is a dashboard secret.
 - Don't merge to `main` until the owner says "ship it".
 - `npx wrangler secret list` / `versions list` (run in `worker/`) are safe
   diagnostics (names only) but leave a `worker/.wrangler/` cache folder
-  holding account info: delete it, don't commit it.
+  holding account info: delete it, don't commit it. A dashboard change
+  always shows up there as a version ("Add variable: …" / "Updated
+  secret: …"); if none appears, the change was not deployed.
 
 ## Testing
 Browser suites live in an earlier session's scratchpad, not the repo
