@@ -1356,7 +1356,7 @@ export default function App() {
                   ["budget", "Nightly budget", [[0, "Any"], [150, "≤$150"], [250, "≤$250"], [400, "≤$400"]]],
                   ["group", "Group", [["", "Any"], ...HOTEL_GROUPS.map((g) => [g.id, g.label]), ["other", "Indep."]]],
                 ].map(([k, label, opts]) => (
-                  <div key={k} className="flex items-center gap-1.5">
+                  <div key={k} className="flex flex-wrap items-center gap-1.5">
                     <span className="text-xs font-bold" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase" }}>{label}</span>
                     {opts.map(([v, l]) => (
                       <button
