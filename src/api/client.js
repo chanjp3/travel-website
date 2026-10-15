@@ -14,7 +14,9 @@ const limits = {};
 export const liveLimit = (kind) => limits[kind] ?? null;
 const noteLimit = (path, res, params) => {
   // only the trip's real leg lookups count — advisor probes never spend
-  // metered quota, so they'd just wipe the answer
+  // metered quota, and phase two (only=hubs) follows a lookup that already
+  // answered, so either would just wipe the answer
+  if (params.only) return;
   if (params.deep || params.detail) limits[path.split("/")[2]] = res.headers.get("X-Meridian-Limit");
 };
 
