@@ -1,4 +1,4 @@
-# Handoff — where Meridian stands (15 Oct 2026, after PR #42)
+# Handoff — where Meridian stands (15 Oct 2026, after PR #43)
 
 Read this first when starting a new session. Then delete or update it.
 
@@ -27,9 +27,12 @@ then ANA to Tokyo, never showed).
   (minutes; judged only where layover times are known). In the map flow
   under More filters; on the desk in the shared filter bar. Persisted with
   the rest of `flightView`.
-- **Lookups run in two phases** (added after the owner reported the
-  search broken: the six hub searches inside the main request pushed it
-  past the client's 25 s limit, so the whole list came back empty). Phase
+- **Lookups run in two phases** (PR #43, merge `0a6748c`, after the owner
+  reported the search broken: the six hub searches inside the main
+  request pushed it past the client's 25 s limit, so the whole list came
+  back empty; the diagnosis is from timing, not a reproduced failure, so
+  if the search still misbehaves, `wrangler tail` while the owner runs a
+  search is the next step). Phase
   one (`/api/flights?...&deep=1`) returns live results at once. Phase two
   (`...&only=hubs`, `liveHubPlans()` in `src/api/client.js`, 75 s budget)
   returns only the plans — a chosen layover or the smart ones — and both
