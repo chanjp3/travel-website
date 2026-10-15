@@ -940,9 +940,13 @@ async function handle(req, env, ctx) {
         // metered accounts one, so a lookup cannot spend a day's allowance.
         if (q.only === "hubs") {
           if (!serp || !real.length) return json([]);
+          // Owners spend searches on hub legs. Metered accounts only reuse
+          // searches already in the cache, so hub plans never eat into
+          // their daily allowance for real leg lookups.
+          const src = isOwner(env, u) ? serp : (qq, opts) => serpFlights(env, qq, async () => false, opts);
           const plans = q.force && q.via
-            ? await forcedHubOffers(env, q, serp).catch(() => [])
-            : await autoHubOffers(env, q, real, serp, u && isOwner(env, u) ? 3 : 1).catch(() => []);
+            ? await forcedHubOffers(env, q, src).catch(() => [])
+            : await autoHubOffers(env, q, real, src, 3).catch(() => []);
           return json(plans);
         }
         if (!real.length && env.DUFFEL_KEY && !env.DUFFEL_KEY.startsWith("duffel_test")) {

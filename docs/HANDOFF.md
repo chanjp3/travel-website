@@ -38,6 +38,14 @@ then ANA to Tokyo, never showed).
   returns only the plans — a chosen layover or the smart ones — and both
   front ends merge them in when they land ("also checking separate-ticket
   combinations…" meanwhile). Google Flights fetches time out at 20 s.
+  Only owners (`OWNER_EMAILS`) spend searches on hub legs; metered
+  accounts get hub plans from cached searches only, so phase two never
+  touches their 5/day allowance. The owner hit that allowance on 15 Oct
+  because the worker did not recognise the signed-in account as owner:
+  `OWNER_EMAILS` must contain the exact Google address shown under
+  "Signed in as" in the Trips panel (comparison is case-insensitive).
+  Counters live in KV as `meter:serp:<day>` and `meter:serp:<day>:<sub>`
+  and expire in 48 h; the day resets at midnight UTC.
 - **Smart separate tickets** (`autoHubOffers()` in `worker/index.js`): in
   phase two of every signed-in leg lookup, the worker takes the hubs
   Google Flights itself connected through (then the client's detour list),
