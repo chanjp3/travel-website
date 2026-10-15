@@ -167,7 +167,7 @@ async function tpFlights(env, q, ret = null) {
  * and only deep lookups (q.deep) spend a search — advisor probes never
  * do. Fails soft to the cached-fare path on any error. */
 const SERP_CLASS = { ECONOMY: 1, PREMIUM_ECONOMY: 2, BUSINESS: 3, FIRST: 4 };
-async function serpFlights(env, q, gate = async () => true) {
+async function serpFlights(env, q, gate = async () => true, { ttl = 1800 } = {}) {
   // cache key deliberately excludes the API key
   const cacheKey = "https://serpapi.local/gf?" + new URLSearchParams({
     o: q.from, d: q.to, t: q.date, r: q.ret ?? "", c: q.cabin ?? "",
@@ -220,10 +220,11 @@ async function serpFlights(env, q, gate = async () => true) {
     }))
     .sort((a, b) => a.price - b.price)
     .slice(0, 10);
-  // Empty results are cached too — that's the quota protection.
+  // Empty results are cached too — that's the quota protection. Hub legs
+  // ask for a longer ttl: they are looked up far more often than they move.
   if (cache) {
     await cache.put(cacheKey, new Response(JSON.stringify(offers), {
-      headers: { "Cache-Control": "public, max-age=1800", "Content-Type": "application/json" },
+      headers: { "Cache-Control": `public, max-age=${ttl}`, "Content-Type": "application/json" },
     }));
   }
   return offers;
@@ -327,40 +328,49 @@ export function synthesizeConnections(hubLegs, { minLayoverMin = 180, maxLayover
     const stamped = Date.parse(e1.arr);
     const arr1 = Number.isFinite(stamped) ? stamped : first.durMin ? dep1 + first.durMin * 60000 : NaN;
     if (!Number.isFinite(arr1)) continue;
-    const best = usable(leg2)
+    const fits = usable(leg2)
       .map((o) => ({ o, dep2: Date.parse(segsOf(o)[0].dep) }))
       .filter((x) => Number.isFinite(x.dep2))
       .map((x) => ({ ...x, layover: Math.round((x.dep2 - arr1) / 60000) }))
       .filter((x) => x.layover >= minLayoverMin && x.layover <= maxLayoverMin)
-      .sort((a, b) => a.o.price - b.o.price || a.layover - b.layover)[0];
+      .sort((a, b) => a.o.price - b.o.price || a.layover - b.layover);
+    const best = fits[0];
     if (!best) continue;
-    const segs2 = segsOf(best.o);
-    const s2 = segs2[0];
     const dur1 = first.durMin ?? Math.round((arr1 - dep1) / 60000);
-    const total = best.o.durMin != null ? dur1 + best.layover + best.o.durMin : null;
-    out.push({
-      price: Math.round((first.price + best.o.price) * 100) / 100,
-      carrier: first.carrier,
-      cabin: first.cabin && first.cabin === best.o.cabin ? first.cabin : "ECONOMY",
-      transfers: (first.transfers ?? 0) + (best.o.transfers ?? 0) + 1,
-      selfTransfer: true,
-      via: hub,
-      layoverMin: best.layover,
-      overnight: best.layover >= 12 * 60,
-      ...(first.gfLive && best.o.gfLive ? { gfLive: true } : {}),
-      ...(total != null ? { durMin: total } : {}),
-      itineraries: [{
-        duration: total != null ? isoDur(total) : null,
-        segments: [
-          ...segs1.slice(0, -1),
-          { ...e1, to: hub, arr: Number.isFinite(stamped) ? e1.arr : localISO(arr1, offsetOf(s2.dep)) },
-          { ...s2, from: hub },
-          ...segs2.slice(1),
-        ],
-      }],
-    });
+    const plan = (x) => {
+      const segs2 = segsOf(x.o);
+      const s2 = segs2[0];
+      const total = x.o.durMin != null ? dur1 + x.layover + x.o.durMin : null;
+      return {
+        price: Math.round((first.price + x.o.price) * 100) / 100,
+        carrier: first.carrier,
+        cabin: first.cabin && first.cabin === x.o.cabin ? first.cabin : "ECONOMY",
+        transfers: (first.transfers ?? 0) + (x.o.transfers ?? 0) + 1,
+        selfTransfer: true,
+        via: hub,
+        layoverMin: x.layover,
+        overnight: x.layover >= 12 * 60,
+        ...(first.gfLive && x.o.gfLive ? { gfLive: true } : {}),
+        ...(total != null ? { durMin: total } : {}),
+        itineraries: [{
+          duration: total != null ? isoDur(total) : null,
+          segments: [
+            ...segs1.slice(0, -1),
+            { ...e1, to: hub, arr: Number.isFinite(stamped) ? e1.arr : localISO(arr1, offsetOf(s2.dep)) },
+            { ...s2, from: hub },
+            ...segs2.slice(1),
+          ],
+        }],
+      };
+    };
+    out.push(plan(best));
+    // When the cheapest onward leg makes a stop, also offer the cheapest
+    // nonstop onward (the ANA-from-Seattle kind of flight), if there is one.
+    const nonstop = (x) => (x.o.transfers ?? segsOf(x.o).length - 1) === 0;
+    const direct = nonstop(best) ? null : fits.find(nonstop);
+    if (direct) out.push(plan(direct));
   }
-  return out.sort((a, b) => a.price - b.price).slice(0, 4);
+  return out.sort((a, b) => a.price - b.price).slice(0, 6);
 }
 
 async function connectionOffers(env, q) {
@@ -403,18 +413,63 @@ async function forcedHubOffers(env, q, serp = null) {
   const minLay = Math.min(12 * 60, Math.max(90, +q.minLay || 180));
   const safe = (p) => p.catch(() => []);
   if (serp) {
-    const [leg1, leg2] = await Promise.all([
-      safe(serp({ from: q.from, to: hub, date: q.date, cabin: q.cabin })),
-      safe(serp({ from: hub, to: q.to, date: q.date, cabin: q.cabin })),
-    ]);
+    const leg = (from, to, date) => safe(serp({ from, to, date, cabin: q.cabin }, { ttl: HUB_LEG_TTL }));
+    const [leg1, leg2] = await Promise.all([leg(q.from, hub, q.date), leg(hub, q.to, q.date)]);
     let built = synthesizeConnections([{ hub, leg1, leg2 }], { minLayoverMin: minLay });
     if (!built.length && leg1.length) {
-      const leg2b = await safe(serp({ from: hub, to: q.to, date: shiftDate(q.date, 1), cabin: q.cabin }));
+      const leg2b = await leg(hub, q.to, shiftDate(q.date, 1));
       built = synthesizeConnections([{ hub, leg1, leg2: leg2b }], { minLayoverMin: minLay });
     }
     if (built.length) return built;
   }
   return env.TRAVELPAYOUTS_TOKEN ? connectionOffers(env, { ...q, via: hub }) : [];
+}
+
+/** Hub legs are asked for far more often than their prices move. */
+const HUB_LEG_TTL = 6 * 3600;
+
+/** Separate one-way tickets through hubs, found without being asked.
+ *  The hubs are the connection points Google Flights itself used in its
+ *  single-ticket answers for this route (so they are known to fly it),
+ *  topped up from the client's detour-ranked list; `maxHubs` of them.
+ *  Each is re-priced as two one-way searches and stitched. A plan is kept
+ *  when it beats the best single ticket on price (5%) or time (10%), or
+ *  when its onward leg is a nonstop the single tickets don't offer — the
+ *  Alaska to Seattle, then ANA to Tokyo, kind of itinerary — at up to
+ *  1.25× the best fare (1.5× when the airline itself is new). */
+export async function autoHubOffers(env, q, real, serp, maxHubs = 3) {
+  const segsOf = (o) => o.itineraries?.[0]?.segments ?? [];
+  const seen = new Map();
+  for (const o of real) for (const s of segsOf(o).slice(0, -1)) {
+    if (s.to && s.to !== q.from && s.to !== q.to) seen.set(s.to, (seen.get(s.to) ?? 0) + 1);
+  }
+  const fromGoogle = [...seen.entries()].sort((a, b) => b[1] - a[1]).map(([h]) => h);
+  const fromClient = (q.via ?? "").split(",").map((s) => s.trim().toUpperCase())
+    .filter((h) => /^[A-Z]{3}$/.test(h) && h !== q.from && h !== q.to);
+  const hubs = [...new Set([...fromGoogle, ...fromClient])].slice(0, Math.max(0, maxHubs));
+  if (!hubs.length) return [];
+  const minLay = Math.min(12 * 60, Math.max(90, +q.minLay || 180));
+  const leg = (from, to, date) => serp({ from, to, date, cabin: q.cabin }, { ttl: HUB_LEG_TTL }).catch(() => []);
+  const hubLegs = await Promise.all(hubs.map(async (hub) => {
+    const [leg1, leg2] = await Promise.all([leg(q.from, hub, q.date), leg(hub, q.to, q.date)]);
+    return { hub, leg1, leg2 };
+  }));
+  const built = synthesizeConnections(hubLegs, { minLayoverMin: minLay });
+  if (!built.length) return [];
+  const bestPrice = Math.min(...real.map((o) => o.price));
+  const durs = real.map((o) => o.durMin).filter((d) => d > 0);
+  const fastest = durs.length ? Math.min(...durs) : null;
+  const singleCarriers = new Set(real.flatMap((o) => segsOf(o).map((s) => s.carrier)));
+  return built.filter((p) => {
+    if (p.price < bestPrice * 0.95) return true;
+    if (fastest && p.durMin && p.durMin < fastest * 0.9) return true;
+    const segs = p.itineraries[0].segments;
+    const i = segs.findIndex((s) => s.from === p.via);
+    const onward = i >= 0 ? segs.slice(i) : [];
+    if (onward.length !== 1) return false;
+    const newAirline = onward[0].carrier && !singleCarriers.has(onward[0].carrier);
+    return p.price <= bestPrice * (newAirline ? 1.5 : 1.25);
+  });
 }
 
 /* ── Seats.aero award search ────────────────────────────────────────────── */
@@ -869,10 +924,11 @@ async function handle(req, env, ctx) {
         // token. Sandbox tokens are ignored — simulated flights must never
         // shadow the real cached market fares below.
         let real = [];
+        let u = null;
         let serp = null; // live lookups for hub legs, through the same meter as the main leg
         if (env.SERPAPI_KEY && q.deep) {
-          const u = await userFrom(req, env);
-          serp = (qq) => serpFlights(env, qq, () => meterSerp(env, u, ctx));
+          u = await userFrom(req, env);
+          serp = (qq, opts) => serpFlights(env, qq, () => meterSerp(env, u, ctx), opts);
           try { real = await serp(q); } catch { /* fall through */ }
         }
         if (!real.length && env.DUFFEL_KEY && !env.DUFFEL_KEY.startsWith("duffel_test")) {
@@ -883,6 +939,14 @@ async function handle(req, env, ctx) {
           // priced live like the main leg, with the fare cache as fallback.
           if (q.force && q.via) {
             return json([...real, ...(await forcedHubOffers(env, q, serp).catch(() => []))]);
+          }
+          // Smart separate tickets: re-price the route as one-way legs
+          // through the hubs Google used, live. Owners get three hubs (six
+          // searches, cached six hours); metered accounts one, so a single
+          // lookup cannot spend a day's allowance.
+          if (q.mix && serp) {
+            const auto = await autoHubOffers(env, q, real, serp, u && isOwner(env, u) ? 3 : 1).catch(() => []);
+            return json([...real, ...auto]);
           }
           // Mixed-airline routing: separate one-way tickets through a hub,
           // kept only when they beat the cheapest single ticket by 5%+.

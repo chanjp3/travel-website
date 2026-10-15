@@ -4,6 +4,8 @@
  * number of stops, hide separate-ticket plans, skip overnight layovers,
  * and never connect through airports the traveler wants to avoid.
  */
+import { airlineName } from "../data/airlines.js";
+
 const parseDur = (s) => {
   const m = /(\d+)h\s*(\d+)?/.exec(s ?? "");
   return m ? +m[1] * 60 + (+m[2] || 0) : null;
@@ -33,6 +35,28 @@ export function connectAirports(f) {
   return [];
 }
 
+/** Airlines on the itinerary, by display name: the operating carrier of
+ *  every segment, plus the row's own label (seed rows have no segments;
+ *  a self-transfer plan reads "Alaska + ANA"). */
+export function airlinesOf(f) {
+  const out = [];
+  const add = (n) => { if (n && !out.includes(n)) out.push(n); };
+  for (const s of f.segs ?? []) if (s.carrier) add(airlineName(s.carrier));
+  for (const n of String(f.airline ?? "").split(/\s*[+/]\s*/)) add(n.trim());
+  return out;
+}
+
+/** Every airline across a set of rows, most frequent first — the filter chips. */
+export function airlineOptions(rows) {
+  const n = new Map();
+  for (const f of rows ?? []) for (const a of airlinesOf(f)) n.set(a, (n.get(a) ?? 0) + 1);
+  return [...n.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([a]) => a);
+}
+
+/** Layover-length choices (minutes; 0 = no limit). */
+export const LAY_MINS = [[0, "Any layover length"], [60, "Layovers ≥ 1h"], [120, "Layovers ≥ 2h"], [180, "Layovers ≥ 3h"], [240, "Layovers ≥ 4h"]];
+export const LAY_MAXES = [[0, "No layover cap"], [120, "Layovers ≤ 2h"], [180, "Layovers ≤ 3h"], [240, "Layovers ≤ 4h"], [360, "Layovers ≤ 6h"], [480, "Layovers ≤ 8h"], [720, "Layovers ≤ 12h"]];
+
 /** Layovers with their length when computable: [{at, min, overnight}]. */
 export function layoversOf(f) {
   const segs = f.segs ?? [];
@@ -58,6 +82,17 @@ export function filterFlights(rows, v = {}) {
     if (v.hideSep && separate(f)) return false;
     if (v.overnight === false && (f.overnight || layoversOf(f).some((l) => l.overnight))) return false;
     if (avoid.size && connectAirports(f).some((a) => avoid.has(a))) return false;
+    // Airlines: keep a row when any of its carriers is chosen (so a
+    // separate-ticket plan with ANA on the onward leg survives "ANA").
+    const want = Array.isArray(v.airlines) && v.airlines.length ? v.airlines : null;
+    if (want && !airlinesOf(f).some((a) => want.includes(a))) return false;
+    // Layover length, judged only where the times are known.
+    const layMin = +v.layMin || 0, layMax = +v.layMax || 0;
+    if (layMin || layMax) {
+      const mins = layoversOf(f).map((l) => l.min).filter((m) => m != null);
+      if (layMin && mins.some((m) => m < layMin)) return false;
+      if (layMax && mins.some((m) => m > layMax)) return false;
+    }
     return true;
   });
 }

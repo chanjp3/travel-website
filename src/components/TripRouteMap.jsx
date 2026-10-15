@@ -43,8 +43,8 @@ function ivoryStyle() {
     sources: { land: { type: "geojson", data: land } },
     layers: [
       { id: "sea", type: "background", paint: { "background-color": T.paper } },
-      { id: "land", type: "fill", source: "land", paint: { "fill-color": "#E6DDCE" } },
-      { id: "borders", type: "line", source: "land", paint: { "line-color": "#C9BDAA", "line-width": 0.6 } },
+      { id: "land", type: "fill", source: "land", paint: { "fill-color": "#D9E1EA" } },
+      { id: "borders", type: "line", source: "land", paint: { "line-color": "#B7C4D3", "line-width": 0.6 } },
     ],
   };
   return ivory;

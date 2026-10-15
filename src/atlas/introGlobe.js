@@ -34,12 +34,12 @@ export function mountIntroGlobe(canvas) {
       devicePixelRatio: Math.min(window.devicePixelRatio || 1, 2),
       width: w, height: w, phi, theta: 0.32,
       dark: 0, diffuse: 1.1, mapSamples: 18000, mapBrightness: 5.5,
-      baseColor: [0.97, 0.95, 0.91],      // ivory
-      markerColor: [0.54, 0.42, 0.18],    // champagne gold
-      glowColor: [0.96, 0.93, 0.88],
+      baseColor: [0.93, 0.95, 0.96],      // cool grey-blue paper
+      markerColor: [0.12, 0.44, 0.62],    // steel blue
+      glowColor: [0.89, 0.92, 0.95],
       markers: MARKERS,
       arcs: ARCS,
-      arcColor: [0.62, 0.48, 0.22],
+      arcColor: [0.18, 0.49, 0.67],
       arcWidth: 0.7, arcHeight: 0.3, opacity: 0.85,
     });
     const tick = () => {

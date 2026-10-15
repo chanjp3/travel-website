@@ -8,3 +8,4 @@ dist-test/
 test-results/
 playwright-report/
 worker/.wrangler/
+.claude/

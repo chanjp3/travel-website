@@ -17,6 +17,37 @@ every deploy re-applies `[vars]` from `worker/wrangler.toml`, which wipes
 plain dashboard variables (Secrets survive). Check the worker's Builds
 settings (production branch) in the dashboard if this should change.
 
+## Added 15 Oct 2026, on the branch (unmerged): filters, smart one-ways, cool palette
+Owner asks: cool colours, airline and layover filters, and "search Google
+Flights as though the legs are one-ways and find the best option" (TPA→SEA,
+then ANA to Tokyo, never showed).
+- **Airline + layover filters** (`src/lib/flightFilters.js`): `v.airlines`
+  (chips built from the rows in view; a row stays when any of its carriers
+  is chosen, so "Alaska + ANA" survives "ANA"), `v.layMin` / `v.layMax`
+  (minutes; judged only where layover times are known). In the map flow
+  under More filters; on the desk in the shared filter bar. Persisted with
+  the rest of `flightView`.
+- **Smart separate tickets** (`autoHubOffers()` in `worker/index.js`): on
+  every signed-in deep leg lookup with `mix=1`, the worker takes the hubs
+  Google Flights itself connected through (then the client's detour list),
+  re-prices origin→hub and hub→destination as one-way Google Flights
+  searches, stitches them (`synthesizeConnections()` now also offers the
+  cheapest *nonstop* onward leg when the cheapest onward stops), and keeps
+  a plan when it is ≥5% cheaper, ≥10% faster, or its onward leg is a
+  nonstop the single tickets lack (≤1.25× the best fare; ≤1.5× if the
+  airline is new). Rows read "Alaska + ANA · separate tickets". Quota:
+  owners get 3 hubs = 6 searches per leg lookup, cached 6 h
+  (`HUB_LEG_TTL`); metered accounts 1 hub. Anonymous lookups still only
+  see the fare cache.
+- **Cool palette**: `src/theme.js` (midnight ink, cool grey-blue paper,
+  steel-blue accent, sea green, teal badges, cool crimson alerts) and the
+  same mapping applied to `index.css`, `atlas/meridian.css`,
+  `share/share.css`, `main.jsx`, the map layers and the playbook. Swap
+  the tokens in `theme.js` and the CSS `:root` to reskin again.
+Verify signed in: a TPA→NRT leg should show separate-ticket rows through
+SEA/ORD/DFW-type hubs when they beat or complement the single tickets;
+"Airlines" chips and the two layover selects filter the list.
+
 ## Fixed 15 Oct 2026, on the branch (unmerged): "connect via"
 Owner report: choosing a layover airport changed nothing. Cause: the
 worker built the forced-hub plan only from the free fare cache, which

@@ -49,9 +49,11 @@ export function mergeLiveLeg(leg, offers, cabin) {
     const it = o.itineraries[0];
     const segs = it.segments;
     const stops = o.transfers ?? segs.length - 1;
+    // Separate tickets on different airlines read "Alaska + ANA".
+    const carriers = [...new Set(segs.map((s) => s.carrier).filter(Boolean))];
     return {
       id: `live-${cabin}-${i}`,
-      airline: airlineName(o.carrier ?? segs[0].carrier),
+      airline: o.selfTransfer && carriers.length > 1 ? carriers.map(airlineName).join(" + ") : airlineName(o.carrier ?? segs[0].carrier),
       cabin: offerCabin(o), programId: null, points: null, fees: 0,
       // Round-trip fallback fares carry the full both-ways price — show
       // the per-direction half so every leg row stays comparable.

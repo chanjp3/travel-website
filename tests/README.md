@@ -9,7 +9,8 @@ runs everything and exits non-zero on the first failing stage:
 1. **Unit suites** (`node --test`, no browser): `tests/unit/`
    - `fares-unit` — `src/data/fixedFares.js` (published Shinkansen / KTX / THSR fares) and `src/lib/groundModes.js` (between-cities options, Omio partner slot, `omioUrl`).
    - `worker-go` — `trackedUrl()` and `GET /go?p=omio&u=` in `worker/index.js`, with made-up tracking links only.
-   - `connections` — "connect via": `synthesizeConnections()` stitching hub legs from either fare source, and `connectsVia()` / `applyFlightView()` putting rows through the chosen hub first.
+   - `connections` — "connect via" and smart separate tickets: `synthesizeConnections()` stitching hub legs from either fare source (plus the nonstop-onward alternative), `autoHubOffers()` with a fake Google Flights source, and `connectsVia()` / `applyFlightView()` putting rows through the chosen hub first.
+   - `filters` — airline chips (`airlinesOf()`, `airlineOptions()`) and the layover-length caps in `filterFlights()`.
 2. **Build** — `vite build --outDir dist-test` with `VITE_API_BASE=http://localhost:8788` (the site thinks a worker lives there).
 3. **Browser suites** (Playwright, Chromium) — `vite preview --port 4174` serves `dist-test/`; every request to the worker is answered by `page.route` from `tests/e2e/helpers/mockApi.mjs`, and everything else off-box (geocoder, OSM, map tiles, fonts) is answered locally or refused. No test reaches a real airline, provider or partner.
 

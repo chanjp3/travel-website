@@ -13,24 +13,24 @@ html {
 
 /* Ivory paper, espresso ink. */
 body {
-  background-color: #f4efe6;
-  color: #1b1714;
+  background-color: #eef2f6;
+  color: #121a26;
   color-scheme: light;
   font-family: "Jost", "Futura", sans-serif;
   font-variant-numeric: lining-nums tabular-nums;
 }
 
 ::selection {
-  background: #c9a66b;
-  color: #1b1714;
+  background: #a9c9e8;
+  color: #121a26;
 }
 
 /* Cards: consistent soft elevation instead of flat 1px boxes. */
 .rounded-xl,
 .rounded-2xl {
   box-shadow:
-    0 1px 2px rgba(27, 23, 20, 0.06),
-    0 18px 36px -26px rgba(27, 23, 20, 0.35);
+    0 1px 2px rgba(18, 26, 38, 0.06),
+    0 18px 36px -26px rgba(18, 26, 38, 0.35);
 }
 span.rounded-xl,
 input.rounded-xl {
@@ -50,15 +50,15 @@ button.rounded-xl:hover:not(:disabled),
 button.rounded-2xl:hover:not(:disabled) {
   transform: translateY(-2px);
   box-shadow:
-    0 0 0 1px rgba(138, 106, 47, 0.35),
-    0 20px 40px -24px rgba(27, 23, 20, 0.4);
+    0 0 0 1px rgba(31, 111, 159, 0.35),
+    0 20px 40px -24px rgba(18, 26, 38, 0.4);
 }
 button:active:not(:disabled) {
   transform: translateY(0) scale(0.995);
 }
 button:focus-visible,
 input:focus-visible {
-  outline: 2px solid #8a6a2f;
+  outline: 2px solid #1f6f9f;
   outline-offset: 2px;
 }
 
@@ -96,7 +96,7 @@ input:focus-visible {
 }
 
 input[type="range"] {
-  accent-color: #8a6a2f;
+  accent-color: #1f6f9f;
 }
 input[type="date"] {
   color-scheme: light;
@@ -106,11 +106,11 @@ input[type="date"] {
   width: 6px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(120,100,80,.25);
+  background: rgba(90, 107, 126,.25);
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(120,100,80,.45);
+  background: rgba(90, 107, 126,.45);
 }
 
 /* Live-search skeleton rows */
@@ -119,10 +119,10 @@ input[type="date"] {
   to { background-position: 200px 0; }
 }
 .skel {
-  background: linear-gradient(90deg, #efe8dc 25%, #f8f4ec 50%, #efe8dc 75%);
+  background: linear-gradient(90deg, #e3eaf2 25%, #f3f6f9 50%, #e3eaf2 75%);
   background-size: 400px 100%;
   animation: skel-sweep 1.2s linear infinite;
-  border: 1px solid rgba(120, 100, 80, 0.14);
+  border: 1px solid rgba(90, 107, 126, 0.14);
 }
 
 /* ── flight-path graphic: airline-style routing timeline ─────────────── */
@@ -132,8 +132,8 @@ input[type="date"] {
   gap: 12px;
   margin-top: 10px;
   padding: 12px 14px 10px;
-  background: rgba(251, 248, 243, 0.9);
-  border: 1px solid rgba(120, 100, 80, 0.14);
+  background: rgba(247, 249, 251, 0.9);
+  border: 1px solid rgba(90, 107, 126, 0.14);
   border-radius: 8px;
 }
 .fp-end { text-align: center; flex: none; }
@@ -141,12 +141,12 @@ input[type="date"] {
   font-family: "Jost", sans-serif;
   font-size: 15px;
   font-weight: 700;
-  color: #1b1714;
+  color: #121a26;
   white-space: nowrap;
 }
 .fp-plus {
   font-size: 9px;
-  color: #8a6a2f;
+  color: #1f6f9f;
   vertical-align: super;
   margin-left: 2px;
 }
@@ -154,16 +154,16 @@ input[type="date"] {
   font-family: "Jost", sans-serif;
   font-size: 9.5px;
   letter-spacing: 0.22em;
-  color: #8a6a2f;
+  color: #1f6f9f;
   margin-top: 3px;
 }
-.fp-code-lg { font-size: 12px; color: #1b1714; letter-spacing: 0.18em; }
+.fp-code-lg { font-size: 12px; color: #121a26; letter-spacing: 0.18em; }
 .fp-seg { flex: 1 1 0; min-width: 56px; text-align: center; }
 .fp-no {
   font-family: "Jost", sans-serif;
   font-size: 8.5px;
   letter-spacing: 0.16em;
-  color: #6b625a;
+  color: #5a6b7e;
   margin-bottom: 4px;
   white-space: nowrap;
 }
@@ -171,7 +171,7 @@ input[type="date"] {
   position: relative;
   height: 2px;
   border-radius: 2px;
-  background: linear-gradient(90deg, rgba(138, 106, 47, 0.25), #8a6a2f 30%, #8a6a2f 70%, rgba(138, 106, 47, 0.25));
+  background: linear-gradient(90deg, rgba(31, 111, 159, 0.25), #1f6f9f 30%, #1f6f9f 70%, rgba(31, 111, 159, 0.25));
   box-shadow: none;
 }
 .fp-line::before,
@@ -182,7 +182,7 @@ input[type="date"] {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #8a6a2f;
+  background: #1f6f9f;
   box-shadow: none;
 }
 .fp-line::before { left: -2px; }
@@ -194,8 +194,8 @@ input[type="date"] {
   transform: translate(-50%, -54%);
   font-size: 12px;
   line-height: 1;
-  color: #1b1714;
-  background: #fbf8f3;
+  color: #121a26;
+  background: #f7f9fb;
   padding: 0 5px;
   text-shadow: none;
 }
@@ -203,7 +203,7 @@ input[type="date"] {
   font-family: "Jost", sans-serif;
   font-size: 8.5px;
   letter-spacing: 0.1em;
-  color: #6b625a;
+  color: #5a6b7e;
   margin-top: 4px;
 }
 .fp-stop { text-align: center; flex: none; min-width: 52px; }
@@ -211,8 +211,8 @@ input[type="date"] {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #8a6a2f;
-  border: 2px solid #fbf8f3;
+  background: #1f6f9f;
+  border: 2px solid #f7f9fb;
   box-shadow: none;
   margin: 0 auto 3px;
 }
@@ -220,7 +220,7 @@ input[type="date"] {
   font-family: "Jost", sans-serif;
   font-size: 8.5px;
   letter-spacing: 0.08em;
-  color: #8a6a2f;
+  color: #1f6f9f;
   margin-top: 2px;
 }
 @media (max-width: 640px) {
