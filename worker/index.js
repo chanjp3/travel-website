@@ -190,7 +190,8 @@ async function serpFlights(env, q, gate = async () => true, { ttl = 1800 } = {})
   u.searchParams.set("currency", "USD");
   u.searchParams.set("hl", "en");
   u.searchParams.set("api_key", env.SERPAPI_KEY);
-  const res = await fetch(u);
+  // Google Flights searches can take 10–20 s; never let one hang a request.
+  const res = await fetch(u, { signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`SerpAPI failed: ${res.status}`);
   const j = await res.json();
   const toISO = (s) => (s ? s.replace(" ", "T") + ":00" : null);
@@ -931,22 +932,29 @@ async function handle(req, env, ctx) {
           serp = (qq, opts) => serpFlights(env, qq, () => meterSerp(env, u, ctx), opts);
           try { real = await serp(q); } catch { /* fall through */ }
         }
+        // Phase two of a leg lookup (only=hubs): just the separate-ticket
+        // plans — a chosen layover, or the smart ones through the hubs
+        // Google used. Several live searches, so they are asked for after
+        // the main results are on screen; the main search is a cache hit
+        // by then. Owners get three hubs (six searches, cached six hours);
+        // metered accounts one, so a lookup cannot spend a day's allowance.
+        if (q.only === "hubs") {
+          if (!serp || !real.length) return json([]);
+          const plans = q.force && q.via
+            ? await forcedHubOffers(env, q, serp).catch(() => [])
+            : await autoHubOffers(env, q, real, serp, u && isOwner(env, u) ? 3 : 1).catch(() => []);
+          return json(plans);
+        }
         if (!real.length && env.DUFFEL_KEY && !env.DUFFEL_KEY.startsWith("duffel_test")) {
           try { real = await duffelFlights(env, q); } catch { /* cached-fare path below */ }
         }
         if (real.length) {
-          // A user-forced layover is also built through the chosen hub —
-          // priced live like the main leg, with the fare cache as fallback.
+          // With the live source on, hub plans come in phase two (above),
+          // so these results go back at once. Without it (Duffel only), the
+          // fare cache still answers a chosen layover here.
+          if (serp) return json(real);
           if (q.force && q.via) {
-            return json([...real, ...(await forcedHubOffers(env, q, serp).catch(() => []))]);
-          }
-          // Smart separate tickets: re-price the route as one-way legs
-          // through the hubs Google used, live. Owners get three hubs (six
-          // searches, cached six hours); metered accounts one, so a single
-          // lookup cannot spend a day's allowance.
-          if (q.mix && serp) {
-            const auto = await autoHubOffers(env, q, real, serp, u && isOwner(env, u) ? 3 : 1).catch(() => []);
-            return json([...real, ...auto]);
+            return json([...real, ...(await forcedHubOffers(env, q, null).catch(() => []))]);
           }
           // Mixed-airline routing: separate one-way tickets through a hub,
           // kept only when they beat the cheapest single ticket by 5%+.
@@ -966,7 +974,7 @@ async function handle(req, env, ctx) {
           // and returns those plans alongside whatever the cache had.
           let offers = await tpFlights(env, q);
           if (!offers.length && q.ret) offers = await tpFlights(env, q, q.ret).catch(() => []);
-          if (q.force && q.via) return json([...offers, ...(await forcedHubOffers(env, q, serp).catch(() => []))]);
+          if (q.force && q.via) return json([...offers, ...(await forcedHubOffers(env, q, null).catch(() => []))]);
           if (offers.length || !q.via) return json(offers);
           return json(await connectionOffers(env, q));
         }

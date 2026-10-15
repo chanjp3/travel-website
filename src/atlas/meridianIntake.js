@@ -11,7 +11,7 @@ import * as d3 from "d3";
 import * as topojson from "topojson-client";
 import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
-import { geoSearch, liveHotelsDetailed, liveMode, limitNotes, searchPOI, liveFlights, liveAwards, livePlaces, bookingHref } from "../api/client.js";
+import { geoSearch, liveHotelsDetailed, liveMode, limitNotes, searchPOI, liveFlights, liveHubPlans, liveAwards, livePlaces, bookingHref } from "../api/client.js";
 import { mergeLiveLeg, mergeLiveAwards } from "../lib/liveMerge.js";
 import { applyFlightView, airlineOptions, connectsVia, layoversOf, stopsOf, LAY_MAXES, LAY_MINS, SORTS, STOP_CAPS } from "../lib/flightFilters.js";
 import { partyFare } from "../lib/party.js";
@@ -585,7 +585,7 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
   const gf=`https://www.google.com/travel/flights?q=${encodeURIComponent(gfQ)}`;
   const escH=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const opt=(list,val)=>list.map(([k,l])=>`<option value="${k}"${String(val)===String(k)?' selected':''}>${l}</option>`).join('');
-  let leg=null, disp=[];
+  let leg=null, disp=[], hubsPending=false, loadSeq=0;
   const shell=(body)=>{
     if(seq!==flSeq) return;
     const moreOpen=qcard.querySelector('.fmore')?.style.display==='block';
@@ -731,7 +731,8 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
       :`<b style="color:var(--ink)">Nothing could be priced through ${escH(v.via)}</b> for this date — showing the other options`}
       — <button type="button" class="flre" id="fvViaClr">clear</button></div>`:'';
     const hidNote=hidden>0?`<div class="hint">${hidden} option${hidden!==1?'s':''} hidden by your filters.</div>`:'';
-    const body=limNote+viaNote+(leg.options.length?`
+    const hubNote=hubsPending?'<div class="hint" style="color:var(--route)">Also checking separate-ticket combinations through hubs — they join the list when found…</div>':'';
+    const body=limNote+viaNote+hubNote+(leg.options.length?`
       ${cash.length?`<label class="minihead">${cashIsCabin?'Live fares — pay cash':'Cached economy fares — pay cash'}${seats>1?` · total for ${seats} seats`:''}</label><div class="optlist" style="max-height:230px">${list(cash,0)}</div>`:''}
       ${!cash.length?`<div class="hint"><b style="color:var(--ink)">No ${cashAll.length?'cash fares match your filters':'cached cash fares for this date'}.</b> <a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">Check live prices on Google Flights ↗</a> — or pick from the points options below.</div>`:''}
       ${!cashIsCabin&&cash.length?`<div class="finenote">${escH(trip.cabin)} cash pricing isn't in the free fare cache — <a href="${gf}" target="_blank" rel="noreferrer" style="color:var(--route)">check ${escH(trip.cabin)} fares on Google Flights ↗</a></div>`:''}
@@ -750,15 +751,28 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
     qcard.querySelectorAll('.fcard[data-i]').forEach(o=>o.onclick=()=>onPick(disp[+o.dataset.i]));
   };
   const load=()=>{
-    leg=null;
+    leg=null; hubsPending=false;
+    const mine=++loadSeq;
     shell('<div class="hint" style="color:var(--route)">Searching live fares &amp; award space…</div>');
     Promise.all([
       liveFlights(from.iata,to.iata,date,trip.cabin,null,v.via||null,{minLay:v.minLay,mix:true}).catch(()=>null),
       liveAwards(from.iata,to.iata,date,trip.cabin).catch(()=>null),
     ]).then(([offers,awards])=>{
-      if(seq!==flSeq) return;
-      leg=mergeLiveAwards(mergeLiveLeg({options:[]},offers,trip.cabin),Array.isArray(awards)?awards:null,date);
+      if(seq!==flSeq||mine!==loadSeq) return;
+      const aw=Array.isArray(awards)?awards:null;
+      leg=mergeLiveAwards(mergeLiveLeg({options:[]},offers,trip.cabin),aw,date);
+      // Main results first. The separate-ticket plans (a chosen layover,
+      // or the smart ones through hubs) take several live searches, so
+      // they come in a second request and join the list when they land.
+      hubsPending=!!(offers&&offers.length);
       paint();
+      if(!hubsPending) return;
+      liveHubPlans(from.iata,to.iata,date,trip.cabin,v.via||null,{minLay:v.minLay}).catch(()=>null).then(plans=>{
+        if(seq!==flSeq||mine!==loadSeq) return;
+        hubsPending=false;
+        if(Array.isArray(plans)&&plans.length) leg=mergeLiveAwards(mergeLiveLeg({options:[]},[...offers,...plans],trip.cabin),aw,date);
+        paint();
+      });
     });
   };
   load();

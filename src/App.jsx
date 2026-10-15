@@ -902,9 +902,9 @@ export default function App() {
             {/* Long-haul flights with funding paths */}
             <div className={`grid gap-5 ${noReturn ? "" : "md:grid-cols-2"}`}>
               {[
-                { key: "out", dir: `Outbound · ${depAir} → ${route.inGw.gw} · ${fmtDay(departDate)}`, leg: outLegD, sel: outId, loading: liveOut.loading || awardsOut.loading, lf: depAir, lt: route.inGw.gw, ld: departDate },
-                ...(noReturn ? [] : [{ key: "back", dir: `Return · ${route.outGw.gw} → ${retAir}${schedule ? ` · ${fmtDay(schedule.returnDate)}` : ""}`, leg: backLegD, sel: backId, loading: liveBack.loading || awardsBack.loading, lf: route.outGw.gw, lt: retAir, ld: schedule?.returnDate }]),
-              ].map(({ key, dir, leg, sel, loading, lf, lt, ld }) => {
+                { key: "out", dir: `Outbound · ${depAir} → ${route.inGw.gw} · ${fmtDay(departDate)}`, leg: outLegD, sel: outId, loading: liveOut.loading || awardsOut.loading, hubs: !!liveOut.hubs, lf: depAir, lt: route.inGw.gw, ld: departDate },
+                ...(noReturn ? [] : [{ key: "back", dir: `Return · ${route.outGw.gw} → ${retAir}${schedule ? ` · ${fmtDay(schedule.returnDate)}` : ""}`, leg: backLegD, sel: backId, loading: liveBack.loading || awardsBack.loading, hubs: !!liveBack.hubs, lf: route.outGw.gw, lt: retAir, ld: schedule?.returnDate }]),
+              ].map(({ key, dir, leg, sel, loading, hubs, lf, lt, ld }) => {
                 // Points-only hides cash rows — but never at the cost of a dead
                 // end. A leg with no fundable award falls back to every way of
                 // getting there, including connections the system built itself.
@@ -983,6 +983,7 @@ export default function App() {
                         )}
                       </span>
                     </div>
+                    {hubs && <p className="text-xs mb-1 pulse-dot" style={{ color: T.inkSoft }}>Also checking separate-ticket combinations through hubs — they join the list when found…</p>}
                     {loading && actualsOnly && shown.length === 0 ? (
                       <div className="space-y-2">
                         <p className="text-xs mb-1 pulse-dot" style={{ color: T.flight }}>Searching live fares & award space for this date…</p>

@@ -14,7 +14,9 @@ const limits = {};
 export const liveLimit = (kind) => limits[kind] ?? null;
 const noteLimit = (path, res, params) => {
   // only the trip's real leg lookups count — advisor probes never spend
-  // metered quota, so they'd just wipe the answer
+  // metered quota, and phase two (only=hubs) follows a lookup that already
+  // answered, so either would just wipe the answer
+  if (params.only) return;
   if (params.deep || params.detail) limits[path.split("/")[2]] = res.headers.get("X-Meridian-Limit");
 };
 
@@ -192,6 +194,21 @@ export const liveFlights = (from, to, date, cabin, ret = null, viaHub = null, { 
     mix: mix ? 1 : null,
     deep: 1, // a real leg lookup — worth spending metered live-search quota
   }, 25000);
+
+/** Phase two of a leg lookup: the separate-ticket plans the worker builds
+ *  from one-way searches — through `viaHub` when the traveler chose one,
+ *  else through the hubs Google Flights itself used. Several live searches,
+ *  so it runs after the main results are on screen and merges in when it
+ *  lands; the long timeout is for that, the main search never waits on it. */
+export const liveHubPlans = (from, to, date, cabin, viaHub = null, { minLay = null } = {}) =>
+  get("/api/flights", {
+    from, to, date,
+    cabin: cabinCode(cabin),
+    via: viaHub ?? (connectionHubs(from, to).join(",") || null),
+    force: viaHub ? 1 : null,
+    minLay: minLay && minLay !== 180 ? minLay : null,
+    mix: 1, deep: 1, only: "hubs",
+  }, 75000);
 
 /** Cheap probe variant — no hub-building, one provider call. Used by the
  *  alternate-airport advisor and the connection check, which fire many
