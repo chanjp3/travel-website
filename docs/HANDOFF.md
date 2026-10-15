@@ -17,6 +17,22 @@ every deploy re-applies `[vars]` from `worker/wrangler.toml`, which wipes
 plain dashboard variables (Secrets survive). Check the worker's Builds
 settings (production branch) in the dashboard if this should change.
 
+## Fixed 15 Oct 2026, on the branch (unmerged): "connect via"
+Owner report: choosing a layover airport changed nothing. Cause: the
+worker built the forced-hub plan only from the free fare cache, which
+has no fares for most hub legs (TPA→DFW, DFW→NRT returned nothing), and
+the live Google Flights path ignored the hub. Fix in `worker/index.js`:
+`forcedHubOffers()` prices origin→hub and hub→destination with Google
+Flights when the main leg did (signed in, deep lookup; two metered
+searches, a third for a next-morning second leg only if needed), falls
+back to the cache, and `synthesizeConnections()` now keeps every segment
+and uses the real arrival stamp at the hub. Client: `applyFlightView`
+lists rows through the chosen hub first (map flow and desk), and the map
+flow says when nothing could be priced through the hub. Anonymous users
+still get only the cache, so a hub can still come back empty for them.
+Verify signed in: pick a hub under More filters → Connect via; rows
+"via <hub>" should lead the list.
+
 ## Shipped 15 Oct 2026
 PR #41 merged to `main` (merge commit `5818e90`, both Cloudflare checks
 green); the branch was reset onto `main` and force-pushed. It carried:
@@ -92,7 +108,7 @@ onto `main` and force-pushed. It carried commit `96d1094`:
 
 ## Testing
 `npm test` runs everything from `tests/` (see `tests/README.md`): the
-`fares-unit` and `worker-go` Node suites, then a build into `dist-test/`
+`fares-unit`, `worker-go` and `connections` Node suites, then a build into `dist-test/`
 with `VITE_API_BASE=http://localhost:8788`, then the Playwright suites
 (flow-e2e, mobile-e2e, tour-layers, playbook-ui, share-ui, watch-ui,
 limit-ui, omio-e2e) against `vite preview --port 4174`. The worker is

@@ -36,7 +36,7 @@ function run(label, args, env = {}) {
 }
 
 if (!has("--e2e") && !has("--no-build")) {
-  run("Unit suites (fares-unit, worker-go)", ["--test", "tests/unit/fares-unit.test.mjs", "tests/unit/worker-go.test.mjs"]);
+  run("Unit suites (fares-unit, worker-go, connections)", ["--test", "tests/unit/fares-unit.test.mjs", "tests/unit/worker-go.test.mjs", "tests/unit/connections.test.mjs"]);
 }
 if (!has("--unit")) {
   if (!has("--no-build")) {

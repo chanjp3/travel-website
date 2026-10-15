@@ -13,7 +13,7 @@ import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
 import { geoSearch, liveHotelsDetailed, liveMode, limitNotes, searchPOI, liveFlights, liveAwards, livePlaces, bookingHref } from "../api/client.js";
 import { mergeLiveLeg, mergeLiveAwards } from "../lib/liveMerge.js";
-import { applyFlightView, layoversOf, stopsOf, SORTS, STOP_CAPS } from "../lib/flightFilters.js";
+import { applyFlightView, connectsVia, layoversOf, stopsOf, SORTS, STOP_CAPS } from "../lib/flightFilters.js";
 import { partyFare } from "../lib/party.js";
 import { flightPathHTML, chainPathHTML } from "../lib/flightPath.js";
 import { seatsSearchLink } from "../lib/bookLinks.js";
@@ -712,7 +712,11 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
     const limNote=!lim?'':`<div class="hint" style="color:var(--route)">${
       lim.signin?'<b>Showing cached fares.</b> Sign in (Trips, top right) for live Google Flights prices in every cabin.'
       :lim.lines.map(escH).join('<br>')}</div>`;
-    const viaNote=v.via?`<div class="hint">Routing through <b style="color:var(--ink)">${escH(v.via)}</b> — <button type="button" class="flre" id="fvViaClr">clear</button></div>`:'';
+    const viaHit=!!v.via&&disp.some(f=>connectsVia(f,v.via));
+    const viaNote=v.via?`<div class="hint">${viaHit
+      ?`Routing through <b style="color:var(--ink)">${escH(v.via)}</b> — those options lead the list`
+      :`<b style="color:var(--ink)">Nothing could be priced through ${escH(v.via)}</b> for this date — showing the other options`}
+      — <button type="button" class="flre" id="fvViaClr">clear</button></div>`:'';
     const hidNote=hidden>0?`<div class="hint">${hidden} option${hidden!==1?'s':''} hidden by your filters.</div>`:'';
     const body=limNote+viaNote+(leg.options.length?`
       ${cash.length?`<label class="minihead">${cashIsCabin?'Live fares — pay cash':'Cached economy fares — pay cash'}${seats>1?` · total for ${seats} seats`:''}</label><div class="optlist" style="max-height:230px">${list(cash,0)}</div>`:''}

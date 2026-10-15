@@ -891,7 +891,7 @@ export default function App() {
                 const shownRaw = visible.length ? visible : leg.options.filter((f) => f.cabin === cabinPref);
                 // Filters + sort (cash-first: real fares lead, award rows follow);
                 // the picked flight always stays visible.
-                const viewed = applyFlightView(shownRaw, flightView);
+                const viewed = applyFlightView(shownRaw, { ...flightView, via: legVia[key] ?? null });
                 const pickedRow = shownRaw.find((f) => f.id === sel);
                 const shown = pickedRow && !viewed.includes(pickedRow) ? [...viewed, pickedRow] : viewed;
                 const filteredOut = shownRaw.length - viewed.length;

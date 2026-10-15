@@ -77,11 +77,18 @@ function sortKind(rows, sort) {
   return [...rows].sort((a, b) => score(a) - score(b));
 }
 
-/** Filter + sort, keeping cash rows ahead of award rows (cash-first). */
+/** Does the itinerary change planes at `hub` (a chosen "connect via" airport)? */
+export const connectsVia = (f, hub) => !!hub && connectAirports(f).includes(String(hub).toUpperCase());
+
+/** Filter + sort, keeping cash rows ahead of award rows (cash-first).
+ *  With `v.via` set, rows through that hub lead their group, in sort order. */
 export function applyFlightView(rows, v = {}) {
   const kept = filterFlights(rows, v);
   const sort = v.sort ?? "best";
-  return [...sortKind(kept.filter((f) => !f.points), sort), ...sortKind(kept.filter((f) => f.points), sort)];
+  const viaFirst = (list) => v.via
+    ? [...list.filter((f) => connectsVia(f, v.via)), ...list.filter((f) => !connectsVia(f, v.via))]
+    : list;
+  return [...viaFirst(sortKind(kept.filter((f) => !f.points), sort)), ...viaFirst(sortKind(kept.filter((f) => f.points), sort))];
 }
 
 export const SORTS = [["best", "Best"], ["cheapest", "Cheapest"], ["fastest", "Fastest"]];

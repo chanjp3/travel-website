@@ -306,41 +306,56 @@ function localISO(epochMs, offset) {
 /** Stitch per-hub leg fares into ranked self-transfer itineraries.
  *  Exported for tests. Layover window: ≥3h by default (bags must be
  *  recollected and re-checked; the traveler can ask for more via minLay),
- *  ≤26h (allows a next-morning second leg, flagged as overnight). */
+ *  ≤26h (allows a next-morning second leg, flagged as overnight).
+ *  Legs may come from the fare cache (one segment, departure + flight
+ *  time, offset stamps) or from Google Flights (any number of segments,
+ *  local stamps with a real arrival at the hub); the arrival stamp wins
+ *  when there is one, and every segment of both legs is kept. */
 export function synthesizeConnections(hubLegs, { minLayoverMin = 180, maxLayoverMin = 26 * 60 } = {}) {
+  const segsOf = (o) => o.itineraries?.[0]?.segments ?? [];
   const usable = (list) => (list ?? []).filter(
-    (o) => o.price > 0 && o.durMin && o.itineraries?.[0]?.segments?.[0]?.dep
+    (o) => o.price > 0 && segsOf(o)[0]?.dep && (o.durMin || segsOf(o)[segsOf(o).length - 1]?.arr)
   );
   const out = [];
   for (const { hub, leg1, leg2 } of hubLegs) {
     const first = usable(leg1).sort((a, b) => a.price - b.price)[0];
     if (!first) continue;
-    const s1 = first.itineraries[0].segments[0];
+    const segs1 = segsOf(first);
+    const s1 = segs1[0], e1 = segs1[segs1.length - 1];
     const dep1 = Date.parse(s1.dep);
     if (!Number.isFinite(dep1)) continue;
-    const arr1 = dep1 + first.durMin * 60000;
+    const stamped = Date.parse(e1.arr);
+    const arr1 = Number.isFinite(stamped) ? stamped : first.durMin ? dep1 + first.durMin * 60000 : NaN;
+    if (!Number.isFinite(arr1)) continue;
     const best = usable(leg2)
-      .map((o) => ({ o, dep2: Date.parse(o.itineraries[0].segments[0].dep) }))
+      .map((o) => ({ o, dep2: Date.parse(segsOf(o)[0].dep) }))
       .filter((x) => Number.isFinite(x.dep2))
       .map((x) => ({ ...x, layover: Math.round((x.dep2 - arr1) / 60000) }))
       .filter((x) => x.layover >= minLayoverMin && x.layover <= maxLayoverMin)
       .sort((a, b) => a.o.price - b.o.price || a.layover - b.layover)[0];
     if (!best) continue;
-    const s2 = best.o.itineraries[0].segments[0];
+    const segs2 = segsOf(best.o);
+    const s2 = segs2[0];
+    const dur1 = first.durMin ?? Math.round((arr1 - dep1) / 60000);
+    const total = best.o.durMin != null ? dur1 + best.layover + best.o.durMin : null;
     out.push({
       price: Math.round((first.price + best.o.price) * 100) / 100,
       carrier: first.carrier,
-      cabin: "ECONOMY",
+      cabin: first.cabin && first.cabin === best.o.cabin ? first.cabin : "ECONOMY",
       transfers: (first.transfers ?? 0) + (best.o.transfers ?? 0) + 1,
       selfTransfer: true,
       via: hub,
       layoverMin: best.layover,
       overnight: best.layover >= 12 * 60,
+      ...(first.gfLive && best.o.gfLive ? { gfLive: true } : {}),
+      ...(total != null ? { durMin: total } : {}),
       itineraries: [{
-        duration: isoDur(first.durMin + best.layover + best.o.durMin),
+        duration: total != null ? isoDur(total) : null,
         segments: [
-          { ...s1, to: hub, arr: localISO(arr1, offsetOf(s2.dep)) },
+          ...segs1.slice(0, -1),
+          { ...e1, to: hub, arr: Number.isFinite(stamped) ? e1.arr : localISO(arr1, offsetOf(s2.dep)) },
           { ...s2, from: hub },
+          ...segs2.slice(1),
         ],
       }],
     });
@@ -372,6 +387,34 @@ async function connectionOffers(env, q) {
   }
   const minLay = Math.min(12 * 60, Math.max(90, +q.minLay || 180));
   return synthesizeConnections(hubLegs, { minLayoverMin: minLay });
+}
+
+/** A layover the traveler chose ("connect via", force=1): price
+ *  origin→hub and hub→destination and stitch them. `serp`, when the main
+ *  leg had live Google Flights (signed in, deep lookup), prices both legs
+ *  the same way — in the chosen cabin, with real arrival times — through
+ *  the same meter: two searches, a third for a next-morning second leg
+ *  only when the same day leaves no workable layover. The free fare cache
+ *  is the fallback, and the only source for anonymous lookups. */
+async function forcedHubOffers(env, q, serp = null) {
+  const hub = (q.via ?? "").split(",").map((s) => s.trim().toUpperCase())
+    .find((h) => /^[A-Z]{3}$/.test(h) && h !== q.from && h !== q.to);
+  if (!hub) return [];
+  const minLay = Math.min(12 * 60, Math.max(90, +q.minLay || 180));
+  const safe = (p) => p.catch(() => []);
+  if (serp) {
+    const [leg1, leg2] = await Promise.all([
+      safe(serp({ from: q.from, to: hub, date: q.date, cabin: q.cabin })),
+      safe(serp({ from: hub, to: q.to, date: q.date, cabin: q.cabin })),
+    ]);
+    let built = synthesizeConnections([{ hub, leg1, leg2 }], { minLayoverMin: minLay });
+    if (!built.length && leg1.length) {
+      const leg2b = await safe(serp({ from: hub, to: q.to, date: shiftDate(q.date, 1), cabin: q.cabin }));
+      built = synthesizeConnections([{ hub, leg1, leg2: leg2b }], { minLayoverMin: minLay });
+    }
+    if (built.length) return built;
+  }
+  return env.TRAVELPAYOUTS_TOKEN ? connectionOffers(env, { ...q, via: hub }) : [];
 }
 
 /* ── Seats.aero award search ────────────────────────────────────────────── */
@@ -826,17 +869,20 @@ async function handle(req, env, ctx) {
         // token. Sandbox tokens are ignored — simulated flights must never
         // shadow the real cached market fares below.
         let real = [];
+        let serp = null; // live lookups for hub legs, through the same meter as the main leg
         if (env.SERPAPI_KEY && q.deep) {
           const u = await userFrom(req, env);
-          try { real = await serpFlights(env, q, () => meterSerp(env, u, ctx)); } catch { /* fall through */ }
+          serp = (qq) => serpFlights(env, qq, () => meterSerp(env, u, ctx));
+          try { real = await serp(q); } catch { /* fall through */ }
         }
         if (!real.length && env.DUFFEL_KEY && !env.DUFFEL_KEY.startsWith("duffel_test")) {
           try { real = await duffelFlights(env, q); } catch { /* cached-fare path below */ }
         }
         if (real.length) {
-          // A user-forced layover still builds through the chosen hub too.
-          if (q.force && q.via && env.TRAVELPAYOUTS_TOKEN) {
-            return json([...real, ...(await connectionOffers(env, q))]);
+          // A user-forced layover is also built through the chosen hub —
+          // priced live like the main leg, with the fare cache as fallback.
+          if (q.force && q.via) {
+            return json([...real, ...(await forcedHubOffers(env, q, serp).catch(() => []))]);
           }
           // Mixed-airline routing: separate one-way tickets through a hub,
           // kept only when they beat the cheapest single ticket by 5%+.
@@ -856,7 +902,7 @@ async function handle(req, env, ctx) {
           // and returns those plans alongside whatever the cache had.
           let offers = await tpFlights(env, q);
           if (!offers.length && q.ret) offers = await tpFlights(env, q, q.ret).catch(() => []);
-          if (q.force && q.via) return json([...offers, ...(await connectionOffers(env, q))]);
+          if (q.force && q.via) return json([...offers, ...(await forcedHubOffers(env, q, serp).catch(() => []))]);
           if (offers.length || !q.via) return json(offers);
           return json(await connectionOffers(env, q));
         }
