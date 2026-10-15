@@ -48,6 +48,7 @@ export async function mockApi(page, opts = {}) {
 
     switch (url.pathname) {
       case "/api/flights": {
+        if (q.only === "hubs") return json([]); // phase two (separate-ticket plans): none in the fixtures
         if (!q.deep) return json([]); // the advisor's speculative probes: nothing to add
         const extra = state.limit ? { "X-Meridian-Limit": state.limit } : {};
         return json(flightOffers(q), 200, extra);

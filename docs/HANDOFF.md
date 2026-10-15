@@ -27,8 +27,16 @@ then ANA to Tokyo, never showed).
   (minutes; judged only where layover times are known). In the map flow
   under More filters; on the desk in the shared filter bar. Persisted with
   the rest of `flightView`.
-- **Smart separate tickets** (`autoHubOffers()` in `worker/index.js`): on
-  every signed-in deep leg lookup with `mix=1`, the worker takes the hubs
+- **Lookups run in two phases** (added after the owner reported the
+  search broken: the six hub searches inside the main request pushed it
+  past the client's 25 s limit, so the whole list came back empty). Phase
+  one (`/api/flights?...&deep=1`) returns live results at once. Phase two
+  (`...&only=hubs`, `liveHubPlans()` in `src/api/client.js`, 75 s budget)
+  returns only the plans — a chosen layover or the smart ones — and both
+  front ends merge them in when they land ("also checking separate-ticket
+  combinations…" meanwhile). Google Flights fetches time out at 20 s.
+- **Smart separate tickets** (`autoHubOffers()` in `worker/index.js`): in
+  phase two of every signed-in leg lookup, the worker takes the hubs
   Google Flights itself connected through (then the client's detour list),
   re-prices origin→hub and hub→destination as one-way Google Flights
   searches, stitches them (`synthesizeConnections()` now also offers the

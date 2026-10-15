@@ -3,24 +3,33 @@
  * when live mode is off or a fetch fails — callers merge with mergeLive*.
  */
 import { useEffect, useState } from "react";
-import { liveFlights, liveHotels, liveAwards, liveMode } from "./client.js";
+import { liveFlights, liveHubPlans, liveHotels, liveAwards, liveMode } from "./client.js";
 import { cityById } from "../data/world.js";
 
 /** `ret` (return date) lets the worker fall back to the much richer
  *  round-trip fare cache — pass it only for the outbound leg of a true
  *  round trip (same airports both ways). */
 export function useLiveLeg(fromAir, toAir, date, cabin, ret = null, viaHub = null, tick = 0, minLay = null) {
-  const [state, set] = useState({ offers: null, loading: false, at: null });
+  const [state, set] = useState({ offers: null, loading: false, at: null, hubs: false });
   useEffect(() => {
     if (!liveMode() || !fromAir || !toAir || !date) {
-      set({ offers: null, loading: false });
+      set({ offers: null, loading: false, hubs: false });
       return;
     }
     let on = true;
-    set({ offers: null, loading: true });
-    liveFlights(fromAir, toAir, date, cabin, ret, viaHub, { minLay }).then(
-      (offers) => on && set({ offers, loading: false, at: Date.now() })
-    );
+    set({ offers: null, loading: true, hubs: false });
+    liveFlights(fromAir, toAir, date, cabin, ret, viaHub, { minLay }).then((offers) => {
+      if (!on) return;
+      // Main results first; the separate-ticket plans (several live
+      // searches) follow in a second request and merge in when they land.
+      const more = !!offers?.length;
+      set({ offers, loading: false, at: Date.now(), hubs: more });
+      if (!more) return;
+      liveHubPlans(fromAir, toAir, date, cabin, viaHub, { minLay }).then((plans) => {
+        if (!on) return;
+        set((s) => ({ ...s, hubs: false, offers: Array.isArray(plans) && plans.length ? [...(s.offers ?? []), ...plans] : s.offers }));
+      });
+    });
     return () => { on = false; };
   }, [fromAir, toAir, date, cabin, ret, viaHub, tick, minLay]);
   return state;

@@ -154,6 +154,13 @@ test("autoHubOffers drops plans that are neither cheaper, faster, nor a new nons
   assert.equal((await autoHubOffers({}, { from: "TPA", to: "NRT", date: "2026-12-10", cabin: "ECONOMY" }, real, cheaper, 1)).length, 1);
 });
 
+test("phase two (only=hubs) answers an empty list, fast, when there is no live source", async () => {
+  const worker = (await import("../../worker/index.js")).default;
+  const res = await worker.fetch(new Request("https://api.test/api/flights?from=TPA&to=NRT&date=2026-12-10&cabin=ECONOMY&deep=1&mix=1&via=SEA&only=hubs"), {});
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), []);
+});
+
 test("connectsVia reads the hub from segments, a self-transfer hub, or a two-booking hub", () => {
   assert.equal(connectsVia({ segs: [{ from: "TPA", to: "DFW" }, { from: "DFW", to: "NRT" }] }, "dfw"), true);
   assert.equal(connectsVia({ selfTransfer: true, hub: "DFW" }, "DFW"), true);

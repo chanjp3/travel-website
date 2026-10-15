@@ -193,6 +193,21 @@ export const liveFlights = (from, to, date, cabin, ret = null, viaHub = null, { 
     deep: 1, // a real leg lookup — worth spending metered live-search quota
   }, 25000);
 
+/** Phase two of a leg lookup: the separate-ticket plans the worker builds
+ *  from one-way searches — through `viaHub` when the traveler chose one,
+ *  else through the hubs Google Flights itself used. Several live searches,
+ *  so it runs after the main results are on screen and merges in when it
+ *  lands; the long timeout is for that, the main search never waits on it. */
+export const liveHubPlans = (from, to, date, cabin, viaHub = null, { minLay = null } = {}) =>
+  get("/api/flights", {
+    from, to, date,
+    cabin: cabinCode(cabin),
+    via: viaHub ?? (connectionHubs(from, to).join(",") || null),
+    force: viaHub ? 1 : null,
+    minLay: minLay && minLay !== 180 ? minLay : null,
+    mix: 1, deep: 1, only: "hubs",
+  }, 75000);
+
 /** Cheap probe variant — no hub-building, one provider call. Used by the
  *  alternate-airport advisor and the connection check, which fire many
  *  speculative lookups; only the trip's two real legs earn the fan-out. */
