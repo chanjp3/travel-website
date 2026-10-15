@@ -919,7 +919,7 @@ const LAYERS=[['sights','◆ Sights'],['food','🍽 Restaurants'],['shop','🛍 
 const attrCache={};
 const escT=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function stepCityTour(i){
-  if(i>=trip.stops.length||i<0){ gMarkers.selectAll('.hotelpin').remove(); hideDetailMap(); return afterHotels(); }
+  if(i>=trip.stops.length||i<0){ tourSeq++; gMarkers.selectAll('.hotelpin').remove(); hideDetailMap(); return afterHotels(); }
   const s=trip.stops[i];
   if(s._refining&&!s.refined){ s._refining.finally(()=>stepCityTour(i)); return; }
   const seq=++tourSeq;
@@ -1066,7 +1066,7 @@ function stepCityTour(i){
     const dc=$('#dClose'); if(dc) dc.onclick=()=>{ district=null; render(); };
     const rt=$('#rt'); if(rt) rt.onclick=()=>stepCityTour(i);
     $('#nx').onclick=()=>stepCityTour(i+1);
-    $('#bk').onclick=()=>{ if(i===0){ gMarkers.selectAll('.hotelpin').remove(); hideDetailMap(); clearDots();
+    $('#bk').onclick=()=>{ if(i===0){ tourSeq++; gMarkers.selectAll('.hotelpin').remove(); hideDetailMap(); clearDots();
         if(trip.type==='noreturn') stepItinerary(); else stepReturnFlight(); } else stepCityTour(i-1); };
     $('#skip').onclick=()=>stepCityTour(trip.stops.length);
   };

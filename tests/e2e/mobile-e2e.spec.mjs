@@ -57,13 +57,10 @@ test("the map flow and the desk work on a phone", async ({ page }, testInfo) => 
 const sidewaysOverflow = (page) =>
   page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 
-// Known layout gap: on the itinerary page the hotel filter bar's "Group"
-// row (label + seven chips, ~440 px) does not wrap, so a phone scrolls
-// sideways by ~60 px. Marked as an expected failure so the suite stays
-// green while the gap is visible; once the row wraps, Playwright reports
-// this test as "expected to fail but passed" and the mark can go.
+// The hotel filter bar's "Group" row (label + seven chips, ~440 px) is the
+// widest thing on the itinerary page; its chips wrap at phone widths, so the
+// page must not scroll sideways.
 test("the itinerary page has no sideways scroll on a phone", async ({ page }) => {
-  test.fail(true, "hotel filter Group row does not wrap at phone widths (App.jsx, Hotels filter bar)");
   await blockExternal(page);
   await mockApi(page);
   await openIntake(page);

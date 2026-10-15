@@ -62,27 +62,15 @@ export async function addStopFromList(page, city) {
 }
 
 /**
- * Wait for a city's hotel tour to finish its background work before moving
- * on. Two things re-render the hotel card late, and neither is cancelled by
- * leaving the city, so moving on too early bounces the traveler back to it:
- *   - the attractions are geocoded one at a time (350 ms apart) and the card
- *     re-renders when the pins are in; the "near sights" sort option changes
- *     its label at that moment;
- *   - every pin refresh resizes the street map, which schedules a 550 ms
- *     "did the view move?" check that re-searches (and re-renders) when it
- *     fires after the map was hidden.
- * So: wait for the label, then for the card to be unchanged for a while.
+ * Wait for a city's hotel tour to pin its attractions before moving on. They
+ * are geocoded one at a time (350 ms apart) and the card re-renders when the
+ * pins are in; the "near sights" sort option changes its label at that moment.
+ * (Leaving a city cancels whatever background work is still running, so the
+ * card never re-renders over the next step; this wait only keeps the tour
+ * steps deterministic.)
  */
 export async function tourSettled(page) {
   await expect(card(page).locator("#fSort option[value='sights']")).toHaveText("sort: near sights", { timeout: 20_000 });
-  const quiet = 900, deadline = Date.now() + 15_000;
-  let last = await card(page).evaluate((el) => el.innerHTML), since = Date.now();
-  while (Date.now() - since < quiet) {
-    await page.waitForTimeout(150);
-    const now = await card(page).evaluate((el) => el.innerHTML);
-    if (now !== last) { last = now; since = Date.now(); }
-    if (Date.now() > deadline) throw new Error("the hotel tour card kept changing for 15 s");
-  }
 }
 
 /**

@@ -84,14 +84,12 @@ mocked with `page.route` (`tests/e2e/helpers/mockApi.mjs`); nothing
 reaches a real provider or partner. First run on a machine:
 `npx playwright install chromium`.
 
-Two things the suites found, left for a product change:
-- Leaving a city's hotel tour (Continue / Skip tour) does not cancel that
-  city's background work (`tourSeq` is not bumped on the way out in
-  `stepCityTour`), so a late attraction geocode or the street map's
-  550 ms view-change check re-renders the hotel card over the next step.
-  The tests wait for the tour to settle (`tourSettled` in
-  `tests/e2e/helpers/intake.mjs`) instead of racing it.
-- On a phone the itinerary's hotel filter bar ("Group" row, seven chips)
-  does not wrap, so the page scrolls sideways by ~60 px. Recorded as an
-  expected failure in `mobile-e2e`; once it wraps, that test reports
-  "expected to fail but passed" and the mark can go.
+Two things the suites found, fixed on 15 Oct 2026:
+- Leaving a city's hotel tour (Continue / Skip tour / Back from city 1) now
+  bumps `tourSeq` in `stepCityTour`, so that city's late attraction geocode
+  or street-map 550 ms view-change check is dropped instead of re-rendering
+  the hotel card over the next step. `tourSettled` in
+  `tests/e2e/helpers/intake.mjs` now only waits for the attraction pins.
+- The itinerary's hotel filter rows wrap their chips (`flex-wrap` in
+  `App.jsx`), so a phone no longer scrolls sideways; `mobile-e2e` asserts
+  that outright instead of carrying it as an expected failure.

@@ -34,9 +34,9 @@ node tests/run.mjs --no-build -- omio  # one suite (anything after -- goes to Pl
 
 First run on a machine: `npx playwright install chromium`.
 
-Known gaps the suites work around rather than hide:
+Two gaps the first run of these suites recorded were fixed on 15 Oct 2026, and the suites now assert the fixed behaviour:
 
-- Leaving a city's hotel tour does not cancel that city's background work (attraction geocoding, the street map's 550 ms view-change check), so moving on too early bounces the traveler back to the hotel card. `tourSettled()` in `e2e/helpers/intake.mjs` waits for the card to be final before continuing.
-- On a phone the itinerary's hotel filter "Group" row does not wrap and the page scrolls sideways. `mobile-e2e` carries that check as an expected failure (`test.fail`); when the row wraps, Playwright reports it as "expected to fail but passed" and the mark can be removed.
+- Leaving a city's hotel tour cancels that city's background work (attraction geocoding, the street map's 550 ms view-change check), so the hotel card no longer re-renders over the next step. `tourSettled()` in `e2e/helpers/intake.mjs` only waits for the city's attraction pins before moving on.
+- On a phone the itinerary's hotel filter rows wrap their chips, so the page does not scroll sideways; `mobile-e2e` checks that as an ordinary assertion.
 
 Build output goes to `dist-test/` (git-ignored) so `dist/` is never left pointing at the mocked API. Failures leave a trace and screenshot under `test-results/`.
