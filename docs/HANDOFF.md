@@ -1,4 +1,4 @@
-# Handoff — where Meridian stands (14 Oct 2026, evening, after PR #40)
+# Handoff — where Meridian stands (15 Oct 2026, after PR #41)
 
 Read this first when starting a new session. Then delete or update it.
 
@@ -16,6 +16,17 @@ deploy too. So unshipped worker changes go live before "ship it", and
 every deploy re-applies `[vars]` from `worker/wrangler.toml`, which wipes
 plain dashboard variables (Secrets survive). Check the worker's Builds
 settings (production branch) in the dashboard if this should change.
+
+## Shipped 15 Oct 2026
+PR #41 merged to `main` (merge commit `5818e90`, both Cloudflare checks
+green); the branch was reset onto `main` and force-pushed. It carried:
+- `tests/`: the browser and unit suites, runner and mocks (see Testing).
+- Two UI fixes the suites found: leaving a city's hotel tour cancels that
+  city's background work; the itinerary's hotel filter chips wrap on
+  phones (commit `237c69f`).
+- The 14 Oct handoff updates below.
+After the deploy the Omio redirect still returns Impact's full tracking
+link with the route page attached (checked 16:49 UTC).
 
 ## Shipped 14 Oct 2026
 PR #40 merged to `main` (merge commit `16ecf59`); the branch was reset
@@ -50,15 +61,20 @@ onto `main` and force-pushed. It carried commit `96d1094`:
   URL pattern works on omio.com, not only omio.fr.
 
 ## Next steps, in order
-1. Affiliate programs to apply for next (owner's Travelpayouts account
-   already exists): 12Go (SE Asia ground), Welcome Pickups or Kiwitaxi
-   (airport transfers), Ferryhopper, hotels (Booking.com via CJ/Awin),
-   tours (GetYourGuide/Viator). When one is approved, add it to `PARTNERS`
-   in `worker/index.js` and a `book` entry in `groundModes.js`, store the
-   network's full tracking link as a dashboard *Secret*, and verify with
-   the curl above (adapt the partner and route).
-2. This note's updates are on the branch, unmerged (docs only). Fold them
-   into the next PR.
+1. **Owner:** decide whether the worker should keep deploying from the
+   working branch (see the caution above). To deploy only from `main`:
+   Cloudflare dashboard → worker `trip-architect-api` → Settings → Builds
+   → production branch `main`. No repo change needed.
+2. **Owner:** affiliate programs to apply for next (owner's Travelpayouts
+   account already exists): 12Go (SE Asia ground), Welcome Pickups or
+   Kiwitaxi (airport transfers), Ferryhopper, hotels (Booking.com via
+   CJ/Awin), tours (GetYourGuide/Viator). When one is approved, add it to
+   `PARTNERS` in `worker/index.js` and a `book` entry in `groundModes.js`,
+   store the network's full tracking link as a dashboard *Secret*, add a
+   case to `tests/unit/worker-go.test.mjs`, and verify with the curl above
+   (adapt the partner and route).
+3. This note's update is a docs-only commit on the branch; it rides with
+   the next PR.
 
 ## Rules that must persist
 - Never paste API keys, tokens or tracking links in chat. Secrets live only
