@@ -34,10 +34,10 @@ export function JourneyMap({ route, originId, hops = [], noReturn = false }) {
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full rounded-xl" style={{ background: T.card, border: `1px solid ${T.mist}` }}>
       {[...Array(9)].map((_, i) => (
-        <line key={"v" + i} x1={40 + (i * (W - 90)) / 8} y1={20} x2={40 + (i * (W - 90)) / 8} y2={H - 30} stroke="#E2D8C8" strokeWidth="1" />
+        <line key={"v" + i} x1={40 + (i * (W - 90)) / 8} y1={20} x2={40 + (i * (W - 90)) / 8} y2={H - 30} stroke="#D5DEE8" strokeWidth="1" />
       ))}
       {[...Array(6)].map((_, i) => (
-        <line key={"h" + i} x1={30} y1={30 + (i * (H - 76)) / 5} x2={W - 40} y2={30 + (i * (H - 76)) / 5} stroke="#E2D8C8" strokeWidth="1" />
+        <line key={"h" + i} x1={30} y1={30 + (i * (H - 76)) / 5} x2={W - 40} y2={30 + (i * (H - 76)) / 5} stroke="#D5DEE8" strokeWidth="1" />
       ))}
       <text x={W - 44} y={H - 12} textAnchor="end" fontSize="10" fill={T.inkSoft} fontFamily="'Jost', sans-serif">
         ROUTE DIAGRAM · {route.inGw.gw} IN{noReturn ? " · ONE-WAY" : ` / ${route.outGw.gw} OUT`}

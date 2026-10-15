@@ -93,7 +93,7 @@ export function BookingPlaybook({ playbook, storeKey }) {
                         ))}
                       </ol>
                       {s.warn.map((w) => (
-                        <div key={w} className="text-xs mt-1.5 flex gap-1.5 items-start" style={{ color: "#7A2331" }}>
+                        <div key={w} className="text-xs mt-1.5 flex gap-1.5 items-start" style={{ color: "#B0304A" }}>
                           <AlertTriangle size={12} style={{ marginTop: 1, flexShrink: 0 }} /><span>{w}</span>
                         </div>
                       ))}

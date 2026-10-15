@@ -31,8 +31,8 @@ function setDistricts(list) {
     if (src) src.setData(data);
     else {
       map.addSource("districts", { type: "geojson", data });
-      map.addLayer({ id: "districts-fill", type: "fill", source: "districts", paint: { "fill-color": "#8A6A2F", "fill-opacity": 0.13 } });
-      map.addLayer({ id: "districts-line", type: "line", source: "districts", paint: { "line-color": "#8A6A2F", "line-width": 1.2, "line-dasharray": [2, 2], "line-opacity": 0.7 } });
+      map.addLayer({ id: "districts-fill", type: "fill", source: "districts", paint: { "fill-color": "#1F6F9F", "fill-opacity": 0.13 } });
+      map.addLayer({ id: "districts-line", type: "line", source: "districts", paint: { "line-color": "#1F6F9F", "line-width": 1.2, "line-dasharray": [2, 2], "line-opacity": 0.7 } });
     }
   };
   if (map.isStyleLoaded()) apply(); else map.once("load", apply);

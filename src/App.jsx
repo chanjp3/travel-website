@@ -26,7 +26,7 @@ import { buildShareSnapshot } from "./lib/shareSnapshot.js";
 import { buildPlaybook } from "./lib/playbook.js";
 import { DEFAULT_PAX, seatsOf, peopleOf, roomsOf, partyFare, paxText } from "./lib/party.js";
 import { hopOptions, chosenOption, fmtMin } from "./lib/groundModes.js";
-import { applyFlightView, SORTS, STOP_CAPS } from "./lib/flightFilters.js";
+import { applyFlightView, airlineOptions, LAY_MAXES, LAY_MINS, SORTS, STOP_CAPS } from "./lib/flightFilters.js";
 import { km } from "./lib/geo.js";
 import { BookingPlaybook } from "./components/BookingPlaybook.jsx";
 import { watchList, watchAdd, watchRemove, watchCheck, watchSeen } from "./api/client.js";
@@ -111,7 +111,7 @@ export default function App() {
   const [pax, setPax] = useState({ ...DEFAULT_PAX });
   const [arriveLag, setArriveLag] = useState(null);  // days from departure to landing, when known
   const [hopModes, setHopModes] = useState({});      // between-cities choice per hop key
-  const [flightView, setFlightView] = useState({ sort: "best", stops: "any", hideSep: false, overnight: true, avoid: "" });
+  const [flightView, setFlightView] = useState({ sort: "best", stops: "any", hideSep: false, overnight: true, avoid: "", airlines: [], layMin: 0, layMax: 0 });
   const noReturn = tripType === "noreturn";
   const seats = seatsOf(pax), rooms = roomsOf(pax);
 
@@ -706,7 +706,7 @@ export default function App() {
           <button
             onClick={() => setTripsOpen(true)}
             className="fixed top-5 right-5 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold"
-            style={{ zIndex: 46, border: `1px solid ${T.mist}`, color: T.ink, background: "rgba(251,248,243,.95)", boxShadow: "0 2px 14px rgba(27,23,20,.12)" }}
+            style={{ zIndex: 46, border: `1px solid ${T.mist}`, color: T.ink, background: "rgba(247,249,251,.95)", boxShadow: "0 2px 14px rgba(18,26,38,.12)" }}
           >
             <MapPin size={13} style={{ color: T.flight }} /> Trips
               {newWatchCount > 0 && (
@@ -870,7 +870,33 @@ export default function App() {
                 <input type="checkbox" checked={flightView.overnight !== false} onChange={(e) => setFlightView({ ...flightView, overnight: e.target.checked })} />
                 Overnight layovers OK
               </label>
+              <select aria-label="Shortest layover" value={flightView.layMin ?? 0} onChange={(e) => setFlightView({ ...flightView, layMin: +e.target.value })}
+                className="px-2 py-1 rounded-lg text-xs font-semibold" style={{ border: `1px solid ${T.mist}`, background: T.paper, color: T.ink }}>
+                {LAY_MINS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+              <select aria-label="Longest layover" value={flightView.layMax ?? 0} onChange={(e) => setFlightView({ ...flightView, layMax: +e.target.value })}
+                className="px-2 py-1 rounded-lg text-xs font-semibold" style={{ border: `1px solid ${T.mist}`, background: T.paper, color: T.ink }}>
+                {LAY_MAXES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
               <span className="text-xs ml-auto" style={{ color: T.inkSoft }}>Prices for {paxText(pax)}</span>
+              {(() => {
+                const airs = airlineOptions([...(outLegD?.options ?? []), ...(backLegD?.options ?? [])]);
+                if (!airs.length) return null;
+                const picked = new Set(flightView.airlines ?? []);
+                const toggle = (a) => { const s = new Set(picked); if (s.has(a)) s.delete(a); else s.add(a); setFlightView({ ...flightView, airlines: [...s] }); };
+                return (
+                  <div className="w-full flex flex-wrap items-center gap-1.5 pt-1" style={{ borderTop: `1px solid ${T.mist}` }}>
+                    <span className="text-xs font-bold" style={{ color: T.inkSoft, fontFamily: "'Jost', sans-serif", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase" }}>Airlines</span>
+                    {airs.map((a) => (
+                      <button key={a} onClick={() => toggle(a)} aria-pressed={picked.has(a)} className="px-2.5 py-1 rounded-full text-xs font-semibold"
+                        style={{ background: picked.has(a) ? T.ink : T.paper, color: picked.has(a) ? T.paper : T.inkSoft, border: `1px solid ${picked.has(a) ? T.ink : T.mist}` }}>{a}</button>
+                    ))}
+                    {picked.size > 0 && (
+                      <button onClick={() => setFlightView({ ...flightView, airlines: [] })} className="px-2.5 py-1 rounded-full text-xs font-semibold underline" style={{ color: T.flight }}>any airline</button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Long-haul flights with funding paths */}
@@ -891,7 +917,7 @@ export default function App() {
                 const shownRaw = visible.length ? visible : leg.options.filter((f) => f.cabin === cabinPref);
                 // Filters + sort (cash-first: real fares lead, award rows follow);
                 // the picked flight always stays visible.
-                const viewed = applyFlightView(shownRaw, flightView);
+                const viewed = applyFlightView(shownRaw, { ...flightView, via: legVia[key] ?? null });
                 const pickedRow = shownRaw.find((f) => f.id === sel);
                 const shown = pickedRow && !viewed.includes(pickedRow) ? [...viewed, pickedRow] : viewed;
                 const filteredOut = shownRaw.length - viewed.length;
@@ -1652,11 +1678,11 @@ export default function App() {
 
       {tripsOpen && (
         <div className="fixed inset-0 z-50" onClick={() => setTripsOpen(false)}>
-          <div className="absolute inset-0" style={{ background: "rgba(27,23,20,0.35)" }} />
+          <div className="absolute inset-0" style={{ background: "rgba(18,26,38,0.35)" }} />
           <aside
             onClick={(e) => e.stopPropagation()}
             className="absolute right-0 top-0 h-full w-[400px] max-w-[92vw] overflow-y-auto p-5 space-y-4 step-in"
-            style={{ background: T.paper, boxShadow: "-16px 0 48px rgba(27,23,20,.25)" }}
+            style={{ background: T.paper, boxShadow: "-16px 0 48px rgba(18,26,38,.25)" }}
           >
             <div className="flex items-center justify-between">
               <h2 style={{ fontFamily: "'Bodoni Moda', Georgia, serif", fontWeight: 500, fontSize: 20 }}>Your trips</h2>

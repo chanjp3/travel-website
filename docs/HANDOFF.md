@@ -1,4 +1,4 @@
-# Handoff — where Meridian stands (14 Oct 2026, evening, after PR #40)
+# Handoff — where Meridian stands (15 Oct 2026, after PR #41)
 
 Read this first when starting a new session. Then delete or update it.
 
@@ -16,6 +16,64 @@ deploy too. So unshipped worker changes go live before "ship it", and
 every deploy re-applies `[vars]` from `worker/wrangler.toml`, which wipes
 plain dashboard variables (Secrets survive). Check the worker's Builds
 settings (production branch) in the dashboard if this should change.
+
+## Added 15 Oct 2026, on the branch (unmerged): filters, smart one-ways, cool palette
+Owner asks: cool colours, airline and layover filters, and "search Google
+Flights as though the legs are one-ways and find the best option" (TPA→SEA,
+then ANA to Tokyo, never showed).
+- **Airline + layover filters** (`src/lib/flightFilters.js`): `v.airlines`
+  (chips built from the rows in view; a row stays when any of its carriers
+  is chosen, so "Alaska + ANA" survives "ANA"), `v.layMin` / `v.layMax`
+  (minutes; judged only where layover times are known). In the map flow
+  under More filters; on the desk in the shared filter bar. Persisted with
+  the rest of `flightView`.
+- **Smart separate tickets** (`autoHubOffers()` in `worker/index.js`): on
+  every signed-in deep leg lookup with `mix=1`, the worker takes the hubs
+  Google Flights itself connected through (then the client's detour list),
+  re-prices origin→hub and hub→destination as one-way Google Flights
+  searches, stitches them (`synthesizeConnections()` now also offers the
+  cheapest *nonstop* onward leg when the cheapest onward stops), and keeps
+  a plan when it is ≥5% cheaper, ≥10% faster, or its onward leg is a
+  nonstop the single tickets lack (≤1.25× the best fare; ≤1.5× if the
+  airline is new). Rows read "Alaska + ANA · separate tickets". Quota:
+  owners get 3 hubs = 6 searches per leg lookup, cached 6 h
+  (`HUB_LEG_TTL`); metered accounts 1 hub. Anonymous lookups still only
+  see the fare cache.
+- **Cool palette**: `src/theme.js` (midnight ink, cool grey-blue paper,
+  steel-blue accent, sea green, teal badges, cool crimson alerts) and the
+  same mapping applied to `index.css`, `atlas/meridian.css`,
+  `share/share.css`, `main.jsx`, the map layers and the playbook. Swap
+  the tokens in `theme.js` and the CSS `:root` to reskin again.
+Verify signed in: a TPA→NRT leg should show separate-ticket rows through
+SEA/ORD/DFW-type hubs when they beat or complement the single tickets;
+"Airlines" chips and the two layover selects filter the list.
+
+## Fixed 15 Oct 2026, on the branch (unmerged): "connect via"
+Owner report: choosing a layover airport changed nothing. Cause: the
+worker built the forced-hub plan only from the free fare cache, which
+has no fares for most hub legs (TPA→DFW, DFW→NRT returned nothing), and
+the live Google Flights path ignored the hub. Fix in `worker/index.js`:
+`forcedHubOffers()` prices origin→hub and hub→destination with Google
+Flights when the main leg did (signed in, deep lookup; two metered
+searches, a third for a next-morning second leg only if needed), falls
+back to the cache, and `synthesizeConnections()` now keeps every segment
+and uses the real arrival stamp at the hub. Client: `applyFlightView`
+lists rows through the chosen hub first (map flow and desk), and the map
+flow says when nothing could be priced through the hub. Anonymous users
+still get only the cache, so a hub can still come back empty for them.
+Verify signed in: pick a hub under More filters → Connect via; rows
+"via <hub>" should lead the list.
+
+## Shipped 15 Oct 2026
+PR #41 merged to `main` (merge commit `5818e90`, both Cloudflare checks
+green); the branch was reset onto `main` and force-pushed. It carried:
+- `tests/`: the browser and unit suites, runner and mocks (see Testing).
+- Two UI fixes the suites found: leaving a city's hotel tour cancels that
+  city's background work; the itinerary's hotel filter chips wrap on
+  phones (commit `237c69f`).
+- The 14 Oct handoff updates below.
+After the deploy the Omio redirect still returns Impact's full tracking
+link with the route page attached (checked 16:49 UTC).
 
 ## Shipped 14 Oct 2026
 PR #40 merged to `main` (merge commit `16ecf59`); the branch was reset
@@ -50,15 +108,20 @@ onto `main` and force-pushed. It carried commit `96d1094`:
   URL pattern works on omio.com, not only omio.fr.
 
 ## Next steps, in order
-1. Affiliate programs to apply for next (owner's Travelpayouts account
-   already exists): 12Go (SE Asia ground), Welcome Pickups or Kiwitaxi
-   (airport transfers), Ferryhopper, hotels (Booking.com via CJ/Awin),
-   tours (GetYourGuide/Viator). When one is approved, add it to `PARTNERS`
-   in `worker/index.js` and a `book` entry in `groundModes.js`, store the
-   network's full tracking link as a dashboard *Secret*, and verify with
-   the curl above (adapt the partner and route).
-2. This note's updates are on the branch, unmerged (docs only). Fold them
-   into the next PR.
+1. **Owner:** decide whether the worker should keep deploying from the
+   working branch (see the caution above). To deploy only from `main`:
+   Cloudflare dashboard → worker `trip-architect-api` → Settings → Builds
+   → production branch `main`. No repo change needed.
+2. **Owner:** affiliate programs to apply for next (owner's Travelpayouts
+   account already exists): 12Go (SE Asia ground), Welcome Pickups or
+   Kiwitaxi (airport transfers), Ferryhopper, hotels (Booking.com via
+   CJ/Awin), tours (GetYourGuide/Viator). When one is approved, add it to
+   `PARTNERS` in `worker/index.js` and a `book` entry in `groundModes.js`,
+   store the network's full tracking link as a dashboard *Secret*, add a
+   case to `tests/unit/worker-go.test.mjs`, and verify with the curl above
+   (adapt the partner and route).
+3. This note's update is a docs-only commit on the branch; it rides with
+   the next PR.
 
 ## Rules that must persist
 - Never paste API keys, tokens or tracking links in chat. Secrets live only
@@ -76,7 +139,7 @@ onto `main` and force-pushed. It carried commit `96d1094`:
 
 ## Testing
 `npm test` runs everything from `tests/` (see `tests/README.md`): the
-`fares-unit` and `worker-go` Node suites, then a build into `dist-test/`
+`fares-unit`, `worker-go` and `connections` Node suites, then a build into `dist-test/`
 with `VITE_API_BASE=http://localhost:8788`, then the Playwright suites
 (flow-e2e, mobile-e2e, tour-layers, playbook-ui, share-ui, watch-ui,
 limit-ui, omio-e2e) against `vite preview --port 4174`. The worker is

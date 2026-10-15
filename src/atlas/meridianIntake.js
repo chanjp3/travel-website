@@ -13,7 +13,7 @@ import { WORLD } from "../data/atlas/worldTopo.js";
 import { AIRPORTS_RAW, NUM2A2 } from "../data/atlas/airports.js";
 import { geoSearch, liveHotelsDetailed, liveMode, limitNotes, searchPOI, liveFlights, liveAwards, livePlaces, bookingHref } from "../api/client.js";
 import { mergeLiveLeg, mergeLiveAwards } from "../lib/liveMerge.js";
-import { applyFlightView, layoversOf, stopsOf, SORTS, STOP_CAPS } from "../lib/flightFilters.js";
+import { applyFlightView, airlineOptions, connectsVia, layoversOf, stopsOf, LAY_MAXES, LAY_MINS, SORTS, STOP_CAPS } from "../lib/flightFilters.js";
 import { partyFare } from "../lib/party.js";
 import { flightPathHTML, chainPathHTML } from "../lib/flightPath.js";
 import { seatsSearchLink } from "../lib/bookLinks.js";
@@ -366,7 +366,7 @@ const freshTrip = () => ({
   cabin:'Business', outFlight:null, backFlight:null,
   home:null,          // airport flying back to
   hopModes:{},        // between-cities choice per hop key
-  flightView:{sort:'best',stops:'any',hideSep:false,minLay:180,overnight:true,avoid:'',via:''},
+  flightView:{sort:'best',stops:'any',hideSep:false,minLay:180,overnight:true,avoid:'',via:'',airlines:[],layMin:0,layMax:0},
 });
 const trip = freshTrip();
 const seatsOf = ()=>trip.pax.adults+trip.pax.children;           // paying seats
@@ -589,6 +589,11 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
   const shell=(body)=>{
     if(seq!==flSeq) return;
     const moreOpen=qcard.querySelector('.fmore')?.style.display==='block';
+    const airs=leg?airlineOptions(leg.options):[];
+    const picked=new Set(v.airlines??[]);
+    const airlineChips=airs.length?`<div class="field"><label>Airlines${picked.size?` — ${picked.size} chosen`:''}</label>
+          <div class="row" style="flex-wrap:wrap;gap:6px">${airs.map(a=>`<button type="button" class="btn ghost sm achip${picked.has(a)?' cab-sel':''}" data-air="${escH(a)}">${escH(a)}</button>`).join('')}
+          ${picked.size?'<button type="button" class="btn ghost sm" id="fvAirClr">any airline</button>':''}</div></div>`:'';
     showCard(`
       <div class="eyebrow">${eyebrow}</div>
       <div class="question">${question}</div>
@@ -607,6 +612,10 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
           <div class="suggest" id="sgVia"></div></div>
         <div class="field"><label>Never connect in</label>
           <input type="text" id="fvAvoid" placeholder="e.g. CDG, LHR" autocomplete="off" value="${escH(v.avoid)}"></div>
+        <div class="field"><label>Layover length</label>
+          <div class="row" style="gap:6px;flex-wrap:wrap"><select id="fvLayMin" class="tsel" aria-label="Shortest layover">${opt(LAY_MINS,v.layMin??0)}</select>
+          <select id="fvLayMax" class="tsel" aria-label="Longest layover">${opt(LAY_MAXES,v.layMax??0)}</select></div></div>
+        ${airlineChips}
         <label class="tchk"><input type="checkbox" id="fvSep"${v.hideSep?' checked':''}> Protected connections only — hide separate tickets</label>
         <label class="tchk"><input type="checkbox" id="fvOvn"${v.overnight?' checked':''}> Overnight layovers are OK</label>
         <div class="tline">Separate-ticket layover at least
@@ -634,6 +643,10 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
     $('#fvOvn').onchange=e=>{ v.overnight=e.target.checked; paint(); };
     $('#fvAvoid').onchange=e=>{ v.avoid=e.target.value.toUpperCase(); paint(); };
     $('#fvMinLay').onchange=e=>{ v.minLay=+e.target.value; load(); };
+    $('#fvLayMin').onchange=e=>{ v.layMin=+e.target.value; paint(); };
+    $('#fvLayMax').onchange=e=>{ v.layMax=+e.target.value; paint(); };
+    qcard.querySelectorAll('.achip').forEach(b=>b.onclick=()=>{ const a=b.dataset.air; const set=new Set(v.airlines??[]); if(set.has(a)) set.delete(a); else set.add(a); v.airlines=[...set]; paint(); });
+    const ac=$('#fvAirClr'); if(ac) ac.onclick=()=>{ v.airlines=[]; paint(); };
     const via=$('#fvVia');
     attachTypeahead(via,$('#sgVia'),viaItems,it=>`<span>${it.a.city} — ${shortName(it.a)}</span><span class="code">${it.a.iata}</span>`,
       it=>{ v.via=it.a.iata; load(); },null,12);
@@ -712,7 +725,11 @@ function stepFlight({from,to,date,eyebrow,question,stub,onPick,onBack}){
     const limNote=!lim?'':`<div class="hint" style="color:var(--route)">${
       lim.signin?'<b>Showing cached fares.</b> Sign in (Trips, top right) for live Google Flights prices in every cabin.'
       :lim.lines.map(escH).join('<br>')}</div>`;
-    const viaNote=v.via?`<div class="hint">Routing through <b style="color:var(--ink)">${escH(v.via)}</b> — <button type="button" class="flre" id="fvViaClr">clear</button></div>`:'';
+    const viaHit=!!v.via&&disp.some(f=>connectsVia(f,v.via));
+    const viaNote=v.via?`<div class="hint">${viaHit
+      ?`Routing through <b style="color:var(--ink)">${escH(v.via)}</b> — those options lead the list`
+      :`<b style="color:var(--ink)">Nothing could be priced through ${escH(v.via)}</b> for this date — showing the other options`}
+      — <button type="button" class="flre" id="fvViaClr">clear</button></div>`:'';
     const hidNote=hidden>0?`<div class="hint">${hidden} option${hidden!==1?'s':''} hidden by your filters.</div>`:'';
     const body=limNote+viaNote+(leg.options.length?`
       ${cash.length?`<label class="minihead">${cashIsCabin?'Live fares — pay cash':'Cached economy fares — pay cash'}${seats>1?` · total for ${seats} seats`:''}</label><div class="optlist" style="max-height:230px">${list(cash,0)}</div>`:''}
